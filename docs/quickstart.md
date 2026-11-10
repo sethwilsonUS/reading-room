@@ -4,18 +4,18 @@ The first run is local and requires no API key. You will build the interface, ch
 
 ## 1. Check prerequisites
 
-Use macOS with Git, Python 3.12, and a supported Node.js version available in your terminal. **Node 24.15.0 or newer within 24.x is recommended.** The locked frontend dependencies support Node **22.22.2+ within 22.x**, **24.15.0+ within 24.x**, or **26.0.0 and newer**; Node 23 and 25 are outside that range.
+Use macOS with Git, Python 3.12–3.15, and a supported Node.js version available in your terminal. **Node 24.15.0 or newer within 24.x is recommended.** The locked frontend dependencies support Node **22.22.2+ within 22.x**, **24.15.0+ within 24.x**, or **26.0.0 and newer**; Node 23 and 25 are outside that range.
 
 Check the versions:
 
 ```sh
 git --version
-python3.12 --version
+python3 --version
 node --version
 npm --version
 ```
 
-If a command is missing, install it first using the [Git download guidance](https://git-scm.com/downloads/mac), [Python downloads](https://www.python.org/downloads/macos/), or [Node.js downloads](https://nodejs.org/en/download). Setup reports missing or incompatible prerequisites; it does not silently install system software. The supported Python version for this preview is 3.12.
+If a command is missing, install it first using the [Git download guidance](https://git-scm.com/downloads/mac), [Python downloads](https://www.python.org/downloads/macos/), or [Node.js downloads](https://nodejs.org/en/download). Setup reports missing or incompatible prerequisites; it does not silently install system software. Supported Python versions are 3.12 through 3.15; setup uses the newest of `python3.15`, `python3.14`, `python3.13`, or `python3.12` found on your `PATH`. On Python 3.15, one locked dependency (`numkong`, used by the vector index) is built from source, which needs the Xcode Command Line Tools (`xcode-select --install`).
 
 ## 2. Clone and set up
 
@@ -25,7 +25,7 @@ cd reading-room
 ./bin/setup
 ```
 
-Setup creates a checkout-local `.venv`, installs locked dependencies, builds the browser interface, and asks where your book collection should live. Choose a folder outside this checkout. The default is `~/dev/books`; a different location is fine.
+Setup creates a checkout-local `.venv`, installs locked dependencies, builds the browser interface, and asks where your book collection should live. Choose a folder outside this checkout. The default is `~/Documents/Reading Room`; press Return to accept it or type any other folder.
 
 For an explicit location without an interactive prompt:
 
@@ -35,7 +35,7 @@ For an explicit location without an interactive prompt:
 
 Setup stores the chosen path in ignored `.reading-room/local.json` and links the originals in [`skills/`](../skills/README.md) into ignored `.agents/skills` for Codex project discovery. User-wide skill installation remains optional. The books folder contains a private `.library` directory for settings, indexes, corrections, and history. Do not add these local-state directories to Git.
 
-You do not need to activate the virtual environment for `./bin/library` commands. Running setup again preserves existing library records and settings. Setup does not start the server, install login startup, scan books, or enable paid features.
+You do not need to activate the virtual environment for `./bin/library` commands. Running setup again preserves existing library records and settings. Setup also creates **Reading Room.app** at the checkout root, a double-click launcher for your library (generated locally and ignored by Git; keep it in this folder). Setup does not start the server, install login startup, scan books, or enable paid features.
 
 Check the result:
 
@@ -68,19 +68,14 @@ The demo uses a temporary, read-only library with paid features disabled, even i
 Use a local EPUB or DOCX you are authorized to use. Bookshare users can follow the [Codex workflow](codex.md#bookshare-workflow); manual downloads work too.
 
 1. Keep the downloaded original. Place a byte-identical working copy in its own folder inside your chosen books directory.
-2. Start the Reading Room in one terminal:
+2. Open the Reading Room: double-click **Reading Room.app**, or run `./bin/library app` (or `./bin/library serve` for a browser tab) in one terminal. Keep it open while the book is prepared.
+3. In a terminal, from the checkout, request local-only intake. Replace the example path with your actual book folder:
 
    ```sh
-   ./bin/library serve
+   ./bin/library intake --path "$HOME/Documents/Reading Room/Example Book" --local-only --json
    ```
 
-3. In another terminal, from the checkout, request local-only intake. Replace the example path with your actual book folder:
-
-   ```sh
-   ./bin/library intake --path "$HOME/Books/ReadingRoom/Example Book" --local-only --json
-   ```
-
-4. Open [http://127.0.0.1:18765](http://127.0.0.1:18765). Use **Intake** to check progress, then find the book on the shelves. Refresh explicitly to see updated progress.
+4. In the Reading Room window (or at [http://127.0.0.1:18765](http://127.0.0.1:18765)), use **Intake** to check progress, then find the book on the shelves. Refresh explicitly to see updated progress.
 5. Search for a distinctive phrase from the book, read it in context, and inspect the citation warnings.
 
 The intake command returns an intake ID. It queues work for the running server; it is not a promise that every stage has finished. You can also inspect the queue from the terminal:

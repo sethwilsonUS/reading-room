@@ -203,7 +203,7 @@ def main():
                     target=checkout/relative;target.parent.mkdir(parents=True,exist_ok=True)
                     shutil.copy2(ROOT/relative,target)
             env={k:v for k,v in os.environ.items() if k not in ('OPENAI_API_KEY','LIBRARY_OPENAI_ENV','LIBRARY_ROOT')}
-            # The Python 3.12 used to invoke this smoke may live in a managed
+            # The supported Python used to invoke this smoke may live in a managed
             # runtime rather than the interactive shell's PATH. Make that
             # installed prerequisite discoverable only in the child setup.
             python_directory=Path(getattr(sys, '_base_executable', sys.executable)).resolve().parent

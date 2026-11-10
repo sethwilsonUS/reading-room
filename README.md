@@ -10,7 +10,7 @@ Browse the complete [skills and their reference guides](skills/README.md) direct
 
 ## Try it
 
-You need Git, **Python 3.12**, and a supported Node.js version; **Node 24.15.0 or newer within 24.x** is recommended. Node is needed to install/build the interface; normal operation uses one Python server. See the [quickstart](docs/quickstart.md) for the supported version ranges and expected results.
+You need Git, **Python 3.12–3.15**, and a supported Node.js version; **Node 24.15.0 or newer within 24.x** is recommended. Node is needed to install/build the interface; normal operation uses one Python server. See the [quickstart](docs/quickstart.md) for the supported version ranges and expected results.
 
 ```sh
 git clone https://github.com/sethwilsonUS/reading-room.git
@@ -21,18 +21,19 @@ cd reading-room
 
 Open the address printed by the demo, normally [http://127.0.0.1:18768](http://127.0.0.1:18768). Search for **copper birds**. The demo uses invented text in a temporary library, with paid processing disabled. Press Control-C in the terminal to stop it.
 
-To open your own library afterward:
+To open your own library afterward, double-click **Reading Room.app** in the checkout folder (setup creates it), or run:
 
 ```sh
-./bin/library serve
+./bin/library app
 ```
 
-Open [http://127.0.0.1:18765](http://127.0.0.1:18765). Follow [your first book](docs/quickstart.md#add-your-first-book) to add a permitted EPUB or DOCX. The server listens on your computer only.
+The library opens in its own window; closing the window stops the server it started. The first launch may ask for permission to open files in your Documents folder. Prefer a browser tab? `./bin/library serve` serves the same interface at [http://127.0.0.1:18765](http://127.0.0.1:18765). Follow [your first book](docs/quickstart.md#add-your-first-book) to add a permitted EPUB or DOCX. The server listens on your computer only.
 
 ## What works locally
 
 - Exact-text search, shelves, structured reading, and book contents.
 - Chicago notes-and-bibliography citation drafts, with missing or uncertain information marked for review.
+- An agent-friendly CLI: `library search QUERY --with-context --json` returns the interface's results with surrounding source text and citation drafts.
 - Editable metadata, research focuses, classifications, and separate research-use history.
 - Durable source selections and corrections that survive index rebuilds.
 

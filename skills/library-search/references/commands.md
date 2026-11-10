@@ -17,6 +17,12 @@ library cite PASSAGE_ID --json
 library cite PASSAGE_ID --segment BLOCK_ID --json
 library search 'beatitudes' --filter text_type=commentary --json
 library search 'water and belonging' --exact --json
+library search 'water and belonging' --with-context --json
+library search 'water and belonging' --with-context --context 3 --max-chars 8000 --json
+library browse --sort creator --json
+library browse 'psalms' --filter subject=poetry --json
+library browse --classification themes=water --json
+library correction show TARGET_ID --json
 library focus list --json
 library focus show FOCUS_ID --json
 library usage --json
@@ -30,6 +36,24 @@ wholly local. Inspect actual semantic coverage and pending updates rather than
 assuming engine selection guarantees complete coverage. Review each result's
 reason and limitations. Explicit filters narrow eligibility; they can exclude books with
 unknown metadata, so omit them when merely expressing a preference.
+
+## Search with context in one call
+
+`--with-context` returns the same hits, order, reasons, limitations, and
+warnings as the interface's search. Each hit also gets a `context` object:
+`before`, `passage` (the matched text), and `after` are plain source text.
+`section`, `location`, and `previous_passage`/`next_passage` are included for
+navigation. Each hit also gets a `citation` object with the full note, short
+note, bibliography, `ready`, `needs_review`, `missing_fields`, and `warnings`.
+It is a draft until those warnings are resolved. Engine defaults are those of
+ordinary search; add `--exact` for wholly local retrieval.
+
+Output is bounded: `--context` neighboring passages per side (0–8, default 2),
+`--max-chars` per hit (default 6000), and `--total-chars` across hits (default
+60000). Direct hits are filled first. A hit past the total budget has
+`context: null` and `context_omitted`. A hit whose source changed after the
+search has `context_error` and, usually, `citation_error`; synchronize before
+relying on it. Use `library read` or `library read-unit` for more text.
 
 ## Passage citations
 
@@ -90,6 +114,50 @@ search and reading need the reported synchronization. A source change can make
 a passage correction inactive: review `orphaned_passage_curation_count` in
 `status`, inspect the new source span, and deliberately reapply only supported
 corrections. See [the contributor guide](contributors.md) for the scoped example.
+
+## Review and correct metadata
+
+`library correction` is the interface's **Review and edit information** page
+for a book, section, or passage ID. It uses the same draft, so work started in
+either place continues in the other. It applies the same rules: inherited
+fields are read-only on a section, a changed value loses its verification, and
+a stale `--version` is refused.
+
+```sh
+library correction show TARGET_ID --json
+library correction set TARGET_ID --field bibliography.authors --value $'First Author\nSecond Author' --evidence 'Opening byline of the section.' --json
+library correction evidence TARGET_ID --field bibliography.authors --evidence 'Byline and contents page.' --json
+library correction decide TARGET_ID --item ITEM_ID --decision keep --json
+library correction preview TARGET_ID --item RECOMMENDATION_ID --json
+library correction recommendation TARGET_ID --item RECOMMENDATION_ID --decision accept --json
+library correction apply TARGET_ID --field bibliography.authors --json
+library correction discard TARGET_ID --json
+```
+
+`show` lists each field's key, kind, current value, status, and whether it is
+editable. It also lists the pending draft, review items, recommendations, and
+bounded source evidence. Pass its `revision` and `version` back with
+`--revision`/`--version` to refuse a write if the review changed meanwhile.
+Name fields take one person per line; tag fields are comma-separated. Only
+`apply` changes library information. It saves the selected draft fields as
+the **user's** corrections: `provisional` unless verified, `confirmed` if
+verified. Repeating a `--request-id` never saves twice.
+
+Agents may draft, decide, and preview to prepare a review. Apply only the
+corrections the user explicitly asks for or approves, because `apply` records
+them as the user's own. Never pass `--verified yes` unless the user personally
+checked that source. For an agent's own proposal that the user has not
+reviewed, use `annotate --origin codex --status provisional` instead.
+Requesting paid AI suggestions remains an interface-only action; suggestions
+already generated appear in `show` as items and recommendations.
+
+## Browse the shelves
+
+`library browse` matches the interface's shelves. It takes an optional title
+or creator query, `--filter subject=…`, `form=…` or `author=…`,
+`--sort title|creator`, and paging. `--classification FACET=VALUE` lists every
+available book with one classification from `taxonomy list` (for example
+`themes=water` or `people=Julian of Norwich`), like **Subjects & connections**.
 
 Research focuses contain a name, description, preferred subjects, forms and
 books, and breadth (`focused`, `balanced`, or `exploratory`). Inspect the current

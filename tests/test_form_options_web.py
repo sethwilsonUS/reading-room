@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
 
+from book_library.storage import open_sqlite
 from book_library.web import create_app
 from test_form_options import library  # Reuse the real SQLite metadata fixture.
 
@@ -62,7 +62,7 @@ def test_suggestions_keep_localhost_boundary_and_have_no_mutation_method(client)
 
 def test_untrusted_labels_are_json_data_not_executable_markup(client, library):
     malicious = '<script>alert("book")</script><img src=x onerror=alert(1)>'
-    with sqlite3.connect(library.state / 'generations' / 'forms.sqlite3') as db:
+    with open_sqlite(library.state / 'generations' / 'forms.sqlite3') as db:
         db.execute('INSERT INTO facets VALUES(?,?,?,?,?,?,?)',
                    ('book-one', 'book-one', 'themes', malicious, 'user', 'confirmed', 'Evidence'))
     response = client.get('/api/form-options', params={'kind': 'themes', 'q': '<script>'})

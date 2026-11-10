@@ -4,14 +4,26 @@ These commands run from the checkout. They do not require activating `.venv`. Th
 
 ## Start and stop
 
+Double-click **Reading Room.app** in the checkout folder, or run:
+
 ```sh
 ./bin/library doctor --json
+./bin/library app
+```
+
+The window shows the same interface and address as the browser version. If no Reading Room server is running, the window starts one and stops it when you close the window or press **Control-C** in its terminal; the authorized intake worker stops with it. If this library's server is already running (for example the login service), the window reuses it and leaves it running. It refuses to open over a different library's server or an unrelated program on the port.
+
+The app's first launch may ask for permission to open files in your Documents folder; choose **Allow**. If it was denied, enable **Reading Room** under System Settings → Privacy & Security → Files and Folders. The launcher records its last run in `.reading-room/app.log` and shows an alert if it cannot start. Setup regenerates the app only when its sources change, which keeps that permission. `.venv/bin/python scripts/build_mac_app.py` rebuilds it manually. The app finds its checkout by location, so it keeps working if you move the whole checkout folder, but not if you move the app out of it.
+
+For a browser tab instead:
+
+```sh
 ./bin/library serve
 ```
 
 Open the printed loopback address. Stop a foreground server with **Control-C** in its terminal. Closing the browser does not stop the server or its authorized intake worker.
 
-If another instance uses the default port, inspect it before starting a duplicate. For a deliberately separate manual instance, use `serve --port 18766`; the server's generated citation links follow that override.
+If another instance uses the default port, inspect it before starting a duplicate. For a deliberately separate manual instance, use `serve --port 18766` or `app --port 18766`; the generated citation links follow that override.
 
 ## Start at login
 
@@ -92,8 +104,9 @@ The exact rebuild preserves original books and durable editorial history. Do not
 | `bin/library` cannot find Python | Run setup and check that `.venv/bin/python` exists. A moved or deleted checkout also breaks installed skill links. |
 | UI says the frontend is missing | Run `npm --prefix frontend ci` and `npm --prefix frontend run build`, then restart. |
 | Library path is missing or wrong | Run `doctor`; check `--root`, `LIBRARY_ROOT`, and `.reading-room/local.json` in that precedence order. |
-| Address already in use | Check `autostart status`; stop the intended process or choose another loopback port. Do not kill an unknown process blindly. |
-| Intake remains queued | Keep `serve` running. The development API and demo do not run production intake work. Refresh status explicitly. |
+| Address already in use | Check `autostart status`; stop the intended process or choose another loopback port. Do not kill an unknown process blindly. `library app` reuses a server already running for the same library. |
+| Reading Room.app does nothing or shows an alert | Read `.reading-room/app.log`. If the log says “Operation not permitted”, allow **Reading Room** under Privacy & Security → Files and Folders. Rerun `./bin/setup` if the app is missing. |
+| Intake remains queued | Keep the Reading Room open (Reading Room.app, `library app`, or `serve`). The development API and demo do not run production intake work. Refresh status explicitly. |
 | Text works but semantic results are absent | Check `semantic status`, coverage, authorization, credential readiness, and accepted budget. Enablement alone does not build the index. |
 | Review did not run | Check the intake's saved permission, not only the current future-import default. Use `intake review INTAKE_ID` for a deliberate later review. |
 | Budget/provider pause persists | Inspect the reason and remaining allowance; fix the cause and explicitly resume. A new month does not automatically resume a paused job. |

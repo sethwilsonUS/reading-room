@@ -15,6 +15,7 @@ Regenerate this inventory after installing the locked dependencies with `.venv/b
 | annotated-doc | 0.0.5 | MIT |
 | annotated-types | 0.8.0 | MIT |
 | anyio | 4.15.1 | MIT |
+| bottle | 0.13.4 | MIT |
 | certifi | 2026.10.23 | MPL-2.0 |
 | charset-normalizer | 3.5.2 | MIT |
 | click | 8.5.0 | BSD-3-Clause |
@@ -31,8 +32,16 @@ Regenerate this inventory after installing the locked dependencies with `.venv/b
 | openai | 2.54.0 | Apache-2.0 |
 | opentelemetry-api | 1.45.2 | Apache-2.0 |
 | pillow | 13.0.0 | MIT-CMU |
+| proxy_tools | 0.1.0 | MIT |
 | pydantic | 2.14.2 | MIT |
 | pydantic-core | 2.50.2 | MIT |
+| pyobjc-core | 13.0 | MIT |
+| pyobjc-framework-Cocoa | 13.0 | MIT |
+| pyobjc-framework-Quartz | 13.0 | MIT |
+| pyobjc-framework-Security | 13.0 | MIT |
+| pyobjc-framework-UniformTypeIdentifiers | 13.0 | MIT |
+| pyobjc-framework-WebKit | 13.0 | MIT |
+| pywebview | 6.2.1 | BSD License |
 | regex | 2026.9.29 | Apache-2.0 AND CNRI-Python |
 | requests | 2.34.2 | Apache-2.0 |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 |

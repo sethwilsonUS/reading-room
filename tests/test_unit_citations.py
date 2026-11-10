@@ -6,7 +6,7 @@ import pytest
 
 from book_library.unit_citations import (create_selection, selection, cite_selection,
                                          cite_unit, record_target_usage)
-from book_library.storage import jsonl
+from book_library.storage import jsonl, open_sqlite
 from test_service import docx, seed
 from test_citations import bib, page, verified_book
 from test_scripture_citations import segmented_source
@@ -14,7 +14,7 @@ from test_scripture_citations import segmented_source
 
 def install_unit(lib, work_id, section_ids, unit_id='unit_test'):
     """Exercise the citation contract independently of normalization heuristics."""
-    with sqlite3.connect(lib.state / 'generations' / lib._active()['database']) as db:
+    with open_sqlite(lib.state / 'generations' / lib._active()['database']) as db:
         db.row_factory = sqlite3.Row
         db.executescript('''CREATE TABLE IF NOT EXISTS reading_units
             (id TEXT PRIMARY KEY,work_id TEXT,node_id TEXT,title TEXT,ordinal INTEGER,data TEXT);
@@ -113,7 +113,7 @@ def test_changed_extraction_cannot_replace_existing_selection_with_same_coordina
     saved = create_selection(lib, unit, ranges)
     original = (lib.state / 'selections.jsonl').read_bytes()
     changed = {**chosen, 'text': chosen['text'].replace('Café', 'Cafe')}
-    with sqlite3.connect(lib.state / 'generations' / lib._active()['database']) as db:
+    with open_sqlite(lib.state / 'generations' / lib._active()['database']) as db:
         db.execute('UPDATE blocks SET text=?,data=? WHERE id=?', (changed['text'], json.dumps(changed), chosen['id']))
     assert not selection(lib, saved['id'])['available']
     with pytest.raises(ValueError, match='anchors changed'):
@@ -237,7 +237,7 @@ def test_owned_note_is_selected_by_membership_not_source_envelope(tmp_path):
     # membership is explicit; the intervening contribution must remain absent.
     note = {**blocks[-1], 'id': 'block_owned_note', 'text': 'An owned endnote.',
             'kind': 'note', 'global_ordinal': foreign['global_ordinal'] + 1}
-    with sqlite3.connect(lib.state / 'generations' / lib._active()['database']) as db:
+    with open_sqlite(lib.state / 'generations' / lib._active()['database']) as db:
         db.execute('INSERT INTO blocks VALUES(?,?,?,?,?,?,?)',
                    (note['id'], hit['work_id'], hit['section_id'], note['global_ordinal'], note['file_id'], note['text'], json.dumps(note)))
         db.execute('INSERT INTO unit_blocks VALUES(?,?,?,?)', (unit, note['id'], note['global_ordinal'], 'note'))
@@ -264,7 +264,7 @@ def test_whole_unit_citation_includes_verified_note_pages_without_intervening_es
     hit = lib.search('copper birds', engine='exact')['direct'][0]
     verified_book(lib, hit)
     unit, blocks = install_unit(lib, hit['work_id'], [hit['section_id']])
-    with sqlite3.connect(lib.state / 'generations' / lib._active()['database']) as db:
+    with open_sqlite(lib.state / 'generations' / lib._active()['database']) as db:
         note = db.execute('SELECT id,ordinal FROM blocks WHERE text=?', ('Verified owned note.',)).fetchone()
         db.execute('INSERT INTO unit_blocks VALUES(?,?,?,?)', (unit, note[0], note[1], 'note'))
     citation = cite_unit(lib, unit)

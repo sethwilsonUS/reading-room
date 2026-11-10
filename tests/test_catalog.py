@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
@@ -9,7 +8,7 @@ import pytest
 
 from book_library.catalog import page
 from book_library.service import Library
-from book_library.storage import SCHEMA, atomic_json
+from book_library.storage import SCHEMA, atomic_json, open_sqlite
 from book_library.taxonomy import facet_books
 from book_library.web import create_app
 
@@ -21,7 +20,7 @@ def library_with(tmp_path, books, facets=()):
     folder = library.state / 'generations'
     folder.mkdir(parents=True)
     database = folder / 'catalog.sqlite3'
-    with sqlite3.connect(database) as db:
+    with open_sqlite(database) as db:
         db.executescript(SCHEMA)
         for book in books:
             db.execute('INSERT INTO works VALUES(?,?,?,?)',

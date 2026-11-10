@@ -20,7 +20,7 @@ from . import semantic as provider
 from . import openai_windowing
 from .budget import Budget
 from .semantic_retention import prune_locked, semantic_reader
-from .storage import atomic_json, now, read_json, stable, uid, writer
+from .storage import atomic_json, now, open_sqlite, read_json, stable, uid, writer
 
 SCHEMA_VERSION = 1
 
@@ -257,7 +257,7 @@ def status(lib):
 def _cache(root, config):
     folder = root / 'cache' / provider.canonical_hash(config)
     folder.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(folder / 'content.sqlite3')
+    db = open_sqlite(folder / 'content.sqlite3')
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('PRAGMA synchronous=FULL')
     db.executescript('''
@@ -347,7 +347,7 @@ def _snapshot(lib, config, cache, *, allowed_file_ids=None, source_bindings=None
     meta_path = folder / (snapshot_id + '.json')
     existing = read_json(meta_path)
     if existing and target.exists():
-        with sqlite3.connect(target) as check:
+        with open_sqlite(target) as check:
             if check.execute('PRAGMA quick_check').fetchone()[0] == 'ok':
                 _validate_files(lib, existing)
                 return existing, target
@@ -491,7 +491,7 @@ def _build_config(engine, lib=None):
     if selected is None and lib is not None:
         for path in (_root(lib) / 'cache').glob('*/content.sqlite3'):
             try:
-                with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as cache:
+                with open_sqlite(path.as_uri() + '?mode=ro', uri=True) as cache:
                     retained = cache.execute('SELECT 1 FROM vectors WHERE dimensions=? LIMIT 1', (provider.OPENAI_DIMENSIONS,)).fetchone()
             except sqlite3.Error:
                 raise ValueError('A retained semantic cache is unreadable. Restore its configuration and metadata before rebuilding; no automatic reembedding was started.') from None
@@ -575,7 +575,7 @@ def estimate_index(lib, *, engine=None):
             imported = _import_pilot(lib, cache, config)
             encoding = tiktoken.get_encoding('cl100k_base')
             count = tokens = 0
-            with sqlite3.connect(windows_path) as windows:
+            with open_sqlite(windows_path) as windows:
                 for key, text in windows.execute('SELECT text_hash,text FROM windows GROUP BY text_hash'):
                     if cache.execute('SELECT 1 FROM vectors WHERE text_hash=?', (key,)).fetchone():
                         continue
@@ -636,7 +636,7 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
             _progress(lib, engine, 'preparing')
             snapshot, windows_path = _snapshot(lib, config, cache, allowed_file_ids=allowed_file_ids, source_bindings=source_bindings)
             imported = _import_pilot(lib, cache, config)
-            with sqlite3.connect(windows_path) as windows:
+            with open_sqlite(windows_path) as windows:
                 pending = []
                 for key, text, file_ids in windows.execute('SELECT text_hash,text,file_ids FROM windows GROUP BY text_hash ORDER BY ordinal'):
                     if _get_vector(cache, key, config['dimensions']) is not None:
@@ -672,7 +672,7 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
                 folder.mkdir(parents=True, exist_ok=True)
                 index.save(str(folder / 'index.usearch'))
                 # Immutable map copied through SQLite backup, not by opening books.
-                with sqlite3.connect(folder / 'windows.sqlite3') as destination:
+                with open_sqlite(folder / 'windows.sqlite3') as destination:
                     windows.backup(destination)
             after = Budget(lib.state).report()
             info = {**snapshot, **config, 'generation': generation, 'engine': engine,
@@ -796,7 +796,7 @@ def _search(lib, query, *, limit=60):
     limit = max(1, min(int(limit), 200))
     matches = index.search(matrix[0], min(info['windows'], max(100, limit * 5)))
     seen = set(); result = []
-    with sqlite3.connect(windows_path) as windows:
+    with open_sqlite(windows_path) as windows:
         for match in matches:
             row = windows.execute('SELECT passage_id,work_id,id,char_start,char_end FROM windows WHERE ordinal=?', (int(match.key),)).fetchone()
             if not row or row[0] in seen:

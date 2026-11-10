@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 
 import pytest
 
 from book_library.form_options import KINDS, suggestions
 from book_library.service import Library
-from book_library.storage import SCHEMA, append_jsonl, atomic_json
+from book_library.storage import SCHEMA, append_jsonl, atomic_json, open_sqlite
 
 
 def edit(lib, target, field, value, *, origin='user', status='confirmed'):
@@ -22,7 +21,7 @@ def library(tmp_path):
     lib = Library(tmp_path)
     path = lib.state / 'generations' / 'forms.sqlite3'
     path.parent.mkdir(parents=True)
-    with sqlite3.connect(path) as db:
+    with open_sqlite(path) as db:
         db.executescript(SCHEMA)
         works = [
             {'id': 'book-one', 'title': 'Poetry and Theology', 'author': 'Volume Editor',
@@ -144,7 +143,7 @@ def test_facets_keep_raw_search_values_and_aliases_find_them(library):
 
 
 def test_forgiving_matching_never_collapses_distinct_facet_values(library):
-    with sqlite3.connect(library.state / 'generations' / 'forms.sqlite3') as db:
+    with open_sqlite(library.state / 'generations' / 'forms.sqlite3') as db:
         for value in ('art-history', 'art history', 'Art History'):
             db.execute('INSERT INTO facets VALUES(?,?,?,?,?,?,?)',
                        ('book-one', 'book-one', 'subjects', value, 'user', 'confirmed', 'Evidence'))
@@ -245,7 +244,7 @@ def test_no_source_reads_or_writes_and_cache_avoids_repeated_database_scans(libr
 
 def test_published_generation_and_taxonomy_edits_refresh_options(library):
     assert suggestions(library, 'themes', 'fresh')['options'] == []
-    with sqlite3.connect(library.state / 'generations' / 'forms.sqlite3') as db:
+    with open_sqlite(library.state / 'generations' / 'forms.sqlite3') as db:
         db.execute('INSERT INTO facets VALUES(?,?,?,?,?,?,?)', ('book-one', 'book-one', 'themes', 'Fresh field', 'user', 'confirmed', 'Evidence'))
     assert values(suggestions(library, 'themes', 'fresh')) == ['Fresh field']
     atomic_json(library.state / 'taxonomy.json', {'terms': [{'id': 'new', 'label': 'New vocabulary', 'aliases': ['fresh']} ]})
@@ -255,7 +254,7 @@ def test_published_generation_and_taxonomy_edits_refresh_options(library):
 
 def test_untrusted_strings_stay_data_not_html(library):
     malicious = '<img src=x onerror=alert(1)>'
-    with sqlite3.connect(library.state / 'generations' / 'forms.sqlite3') as db:
+    with open_sqlite(library.state / 'generations' / 'forms.sqlite3') as db:
         db.execute('INSERT INTO facets VALUES(?,?,?,?,?,?,?)', ('book-one', 'book-one', 'themes', malicious, 'user', 'confirmed', 'Evidence'))
     result = suggestions(library, 'themes', '<img')
     assert result['options'][0]['value'] == malicious

@@ -8,7 +8,7 @@ description: "Download user-authorized Bookshare books, choose useful text forma
 Acquire the authorized books and leave a verified, clearly named, searchable
 local collection. Discover the configured library root through the sibling
 [library-search launcher](../library-search/scripts/library) and `doctor --json`;
-`~/dev/books` is only the fallback. Honor a different requested destination or
+`~/Documents/Reading Room` is only the fallback. Honor a different requested destination or
 format. Every `library` example means that absolute skill-relative launcher.
 This skill does not download books merely
 because it was invoked without an identifiable title or selection.

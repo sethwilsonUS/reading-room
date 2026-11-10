@@ -1,6 +1,6 @@
 # Development
 
-The supported development environment is macOS, Python 3.12, and Node.js 24.15.0 or newer within 24.x (recommended). The locked frontend also permits 22.22.2+ within 22.x or 26.0.0 and newer, matching the package engine range. Start with [setup](quickstart.md), then install the locked development dependencies using the commands below.
+The supported development environment is macOS, Python 3.12–3.15, and Node.js 24.15.0 or newer within 24.x (recommended). The locked frontend also permits 22.22.2+ within 22.x or 26.0.0 and newer, matching the package engine range. Start with [setup](quickstart.md), then install the locked development dependencies using the commands below.
 
 ## Architecture
 
@@ -47,7 +47,9 @@ npm --prefix frontend run test:browser
 .venv/bin/python scripts/check_public_release.py --candidates
 ```
 
-Python tests construct temporary synthetic EPUB/DOCX sources and mock providers. Browser tests run a disposable server on port 18767 with paid work and the production intake worker disabled. They must not use real books or keys. Automated accessibility checks supplement, rather than replace, keyboard and screen-reader review.
+Python tests construct temporary synthetic EPUB/DOCX sources and mock providers. Pytest treats `ResourceWarning` as an error: open SQLite through `book_library.storage.open_sqlite` (or `connect` for read-only index generations) inside a `with` block, which closes the connection. The standard `sqlite3.connect` context manager only commits. Browser tests run a disposable server on port 18767 with paid work and the production intake worker disabled. They must not use real books or keys. Automated accessibility checks supplement, rather than replace, keyboard and screen-reader review.
+
+`library app` (`src/book_library/desktop.py`) wraps the same server in a pywebview window; see [ADR 0008](adr/0008-native-desktop-window.md). `Reading Room.app` is generated from `macos/` by `scripts/build_mac_app.py` during setup and is not committed. Rebuild it with `--force` after editing those sources if setup has not run.
 
 API type generation is offline: it exports the FastAPI schema without opening a real library or starting the worker. Commit the generated OpenAPI/TypeScript contracts with relevant API changes. Frontend build output under `src/book_library/frontend_dist` is generated locally and excluded from Git.
 

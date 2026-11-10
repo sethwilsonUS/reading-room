@@ -113,6 +113,33 @@ def test_setup_rejects_unsupported_node_versions(version):
     assert not script('setup').supported_node(version)
 
 
+@pytest.mark.parametrize(('version', 'expected'), [((3, 11, 9), False), ((3, 12, 0), True), ((3, 15, 2), True), ((3, 16, 0), False)])
+def test_supported_python_range(version, expected):
+    from book_library.install_defaults import supported_python
+    assert supported_python(version) is expected
+    assert script('setup').DEFAULTS.supported_python(version) is expected
+
+
+def test_python_range_matches_package_metadata_and_launcher():
+    import tomllib
+    from book_library.install_defaults import MAX_PYTHON, MIN_PYTHON
+    requires = tomllib.loads((CHECKOUT / 'pyproject.toml').read_text())['project']['requires-python']
+    assert requires == f'>={MIN_PYTHON[0]}.{MIN_PYTHON[1]},<{MAX_PYTHON[0]}.{MAX_PYTHON[1] + 1}'
+    launcher = (CHECKOUT / 'bin' / 'setup').read_text()
+    expected = ' '.join(f'python3.{minor}' for minor in range(MAX_PYTHON[1], MIN_PYTHON[1] - 1, -1))
+    assert f'for candidate in {expected}; do' in launcher
+
+
+def test_default_library_root_is_documents_folder_after_explicit_choices(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('LIBRARY_ROOT', raising=False)
+    assert Library().root == (tmp_path / 'Documents' / 'Reading Room').resolve()
+    assert script('setup').DEFAULTS.default_library_root() == tmp_path / 'Documents' / 'Reading Room'
+    monkeypatch.setenv('LIBRARY_ROOT', str(tmp_path / 'env books'))
+    assert Library().root == (tmp_path / 'env books').resolve()
+    assert Library(tmp_path / 'explicit').root == (tmp_path / 'explicit').resolve()
+
+
 def test_synthetic_demo_search_read_cite_without_provider(tmp_path, monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', 'dummy-do-not-use')
     from book_library import semantic, review_ai

@@ -1,6 +1,6 @@
 # Codex and skills
 
-The full agent workflow uses Codex with access to this local checkout and your chosen books folder. Reading Room itself does not require Codex: its browser interface and CLI work independently.
+The full agent workflow uses Codex with access to this local checkout and your chosen books folder. Reading Room itself does not require Codex: its window, browser interface, and CLI work independently.
 
 There are three separate sign-ins or credentials:
 
@@ -36,6 +36,10 @@ Try a prompt such as:
 > Use library-search to check library status, then find passages about memory and place. Read the strongest results in context and distinguish direct support from possible connections. Do not enable paid features.
 
 If semantic search is already enabled, ordinary search may make a paid query embedding. Ask explicitly for **exact search** when you want a wholly local search.
+
+Agents can get each result's surrounding source text and citation draft in one call with `library search QUERY --with-context --json`, prepare metadata corrections with `library correction`, and browse the shelves with `library browse`; see the [command reference](../skills/library-search/references/commands.md).
+
+Other assistants with terminal access to this checkout can follow the same `SKILL.md` files and run the same `bin/library` commands. Setup creates discovery links only for Codex (`.agents/skills`); point another assistant at `skills/` yourself.
 
 ## Use the skills across projects
 

@@ -454,25 +454,11 @@ def register_review_routes(app, library, page, form, call, identifier):
             if data.get('operation') == 'remove':
                 changes.pop(key, None)
             else:
-                from .review import parse_field_value
-                parsing_field = deepcopy(fields[key])
+                from .review import draft_change
                 proposal = _editable_proposal(context, draft, data['proposal_item_id'], key) if data.get('proposal_item_id') else None
-                if proposal and parsing_field.get('kind') == 'names':
-                    parsing_field['raw_value'] = deepcopy(proposal['value'])
-                if parsing_field.get('kind') == 'names' and key in changes:
-                    parsing_field['raw_value'] = deepcopy(changes[key]['value'])
-                value = parse_field_value(parsing_field, data.get('value', ''), mode=data.get('mode', ''), short_names=data.get('short_names', ''))
-                evidence = data.get('evidence', '').strip()
-                if len(evidence) > 4000:
-                    raise ValueError('Keep source evidence to 4,000 characters or fewer.')
-                previous = changes.get(key, {})
-                change = {'value': value, 'evidence': evidence, 'verified': data.get('verified') == 'yes'}
-                if previous.get('verified') and previous.get('value') != value:
-                    change['verified'] = False
-                if value == previous.get('value') and previous.get('ai_provenance'):
-                    change['ai_provenance'] = previous['ai_provenance']
-                elif proposal and value == proposal['value'] and proposal.get('ai_provenance'):
-                    change['ai_provenance'] = proposal['ai_provenance']
+                change = draft_change(fields[key], data.get('value', ''), changes.get(key), mode=data.get('mode', ''),
+                                      short_names=data.get('short_names', ''), evidence=data.get('evidence', ''),
+                                      verified=data.get('verified') == 'yes', proposal=proposal)
                 changes[key] = change
             if proposal:
                 result = await call('decide_review', target_id, proposal['id'], 'accept', edited_change=change,

@@ -469,6 +469,36 @@ def parse_field_value(field, raw, *, mode='', short_names=''):
     return validate_field_value(field, value)
 
 
+def draft_change(field, raw, previous=None, *, mode='', short_names='', evidence='', verified=False, proposal=None):
+    """Build one review-draft change from text input; shared by the review page and CLI.
+
+    `previous` is the field's existing draft change, if any; `proposal` is a
+    review item whose value is being edited. Names keep their structured
+    records where the printed name is unchanged. A changed value loses an
+    earlier verification, and AI provenance is kept only while the value is
+    still the suggested one.
+    """
+    parsing_field = copy.deepcopy(field)
+    if field.get('kind') == 'names':
+        if previous is not None:
+            parsing_field['raw_value'] = copy.deepcopy(previous['value'])
+        elif proposal:
+            parsing_field['raw_value'] = copy.deepcopy(proposal['value'])
+    value = parse_field_value(parsing_field, raw, mode=mode, short_names=short_names)
+    evidence = evidence.strip()
+    if len(evidence) > 4000:
+        raise ValueError('Keep source evidence to 4,000 characters or fewer.')
+    previous = previous or {}
+    change = {'value': value, 'evidence': evidence, 'verified': bool(verified)}
+    if previous.get('verified') and previous.get('value') != value:
+        change['verified'] = False
+    if value == previous.get('value') and previous.get('ai_provenance'):
+        change['ai_provenance'] = previous['ai_provenance']
+    elif proposal and value == proposal['value'] and proposal.get('ai_provenance'):
+        change['ai_provenance'] = proposal['ai_provenance']
+    return change
+
+
 def _empty(context):
     return {'id': stable('review', context['target']['id'], context['revision']), 'target_id': context['target']['id'],
             'revision': context['revision'], 'version': 0, 'changes': {}, 'suggestions': [],

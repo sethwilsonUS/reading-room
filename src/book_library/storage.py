@@ -114,7 +114,27 @@ CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);
 '''
 
 
+class ClosingConnection(sqlite3.Connection):
+    """SQLite connection whose ``with`` block also closes it.
+
+    The standard library's connection context manager only commits or rolls
+    back; the file handle stays open until garbage collection, which leaks
+    descriptors in the long-running server and raises ResourceWarning on
+    Python 3.13+. Every connection here is scoped to one ``with`` block.
+    """
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        finally:
+            self.close()
+
+
+def open_sqlite(database, **kwargs):
+    """Open a ClosingConnection; arguments match :func:`sqlite3.connect`."""
+    return sqlite3.connect(database, factory=ClosingConnection, **kwargs)
+
+
 def connect(path):
-    db=sqlite3.connect(f'file:{path}?mode=ro',uri=True)
+    db=open_sqlite(f'file:{path}?mode=ro',uri=True)
     db.row_factory=sqlite3.Row
     return db

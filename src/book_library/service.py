@@ -3,6 +3,7 @@ import collections, copy, gzip, hashlib, json, os, re, sqlite3, time, unicodedat
 from pathlib import Path
 from .storage import now, uid, stable, digest, read_json, atomic_json, writer, append_jsonl, jsonl, SCHEMA, connect
 from .defaults import FOCUSES, TAXONOMY
+from .install_defaults import default_library_root
 
 FACETS = {'subjects','disciplines','themes','motifs','questions','forms','people','places','works','artworks','biblical_references','periods','cultures','traditions','media','approaches'}
 STOP = set('a an the of for to in on with and or is are was were how what which who why when does do can about from by into as that this me find show passages passage book books discuss discussion'.split())
@@ -59,7 +60,7 @@ def location(block, file):
 
 class Library:
     def __init__(self,root=None):
-        self.root=Path(root or os.environ.get('LIBRARY_ROOT',Path.home()/'dev/books')).expanduser().resolve()
+        self.root=Path(root or os.environ.get('LIBRARY_ROOT') or default_library_root()).expanduser().resolve()
         self.state=self.root/'.library'
 
     def _catalog(self): return read_json(self.state/'catalog.json',{'schema_version':1,'works':{},'files':{},'acquisitions':{},'updated_at':None})

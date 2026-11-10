@@ -11,7 +11,7 @@ For `bin/library` and the bundled skill launcher, library-root precedence is:
 1. `--root PATH` before the subcommand.
 2. `LIBRARY_ROOT` in the process environment.
 3. `library_root` in the checkout's `.reading-room/local.json`.
-4. The current user's `~/dev/books`.
+4. The current user's `~/Documents/Reading Room`.
 
 ```sh
 ./bin/library --root "$HOME/Books/OtherLibrary" status --json

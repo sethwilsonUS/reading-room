@@ -12,7 +12,16 @@ Use a specific phrase for a direct wording search. With semantic search enabled,
 ./bin/library status --json
 ./bin/library search 'memory and place' --exact --json
 ./bin/library books 'poetry' --json
+./bin/library browse --classification themes=water --json
 ```
+
+For agents and scripts, `--with-context` returns the same results as the interface's search, each with its surrounding source text and a citation draft, in one bounded JSON response:
+
+```sh
+./bin/library search 'memory and place' --with-context --json
+```
+
+Each hit's `context` separates the matched `passage` from the text `before` and `after` it. Its `citation` carries the notes, bibliography entry, and the warnings and missing fields to resolve before submission. See the [command reference](../skills/library-search/references/commands.md#search-with-context-in-one-call) for the size limits.
 
 Status checks file size and modification time without rereading every original. Synchronize after adding, changing, or removing files. Stale candidate passages are hidden rather than presented as current evidence.
 
@@ -61,6 +70,8 @@ Keep these distinctions:
 - A saved correction can still be provisional.
 - Verification records that you checked evidence for a particular value and scope.
 - An automatic intake correction is assistant work, not your personal verification.
+
+The same review is available in the terminal as `library correction` (`show`, `set`, `decide`, `apply`, and others; see the [command reference](../skills/library-search/references/commands.md#review-and-correct-metadata)). It shares the draft with the interface, so you can, for example, let an agent prepare changes and then review and save them in the window. Requesting paid AI suggestions is interface-only.
 
 Manual drafts survive navigation separately from effective library metadata. Changed source material or intervening edits require rechecking them. Undo preserves later user work. AI suggestions are optional; manual editing remains available without paid features.
 

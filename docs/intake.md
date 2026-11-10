@@ -15,15 +15,15 @@ ReadingRoom/
   .library/              private application state
 ```
 
-With `./bin/library serve` running, request intake from a second terminal:
+With the Reading Room open (Reading Room.app, `./bin/library app`, or `./bin/library serve`), request intake from a terminal:
 
 ```sh
-./bin/library intake --path "$HOME/Books/ReadingRoom/Example Book" --local-only --json
+./bin/library intake --path "$HOME/Documents/Reading Room/Example Book" --local-only --json
 ```
 
 Replace this path with the book folder under the root you selected during setup. `--path` selects one book file or folder, not the entire library. The result includes the intake ID and status URL.
 
-The worker prepares text first, then runs any authorized paid stages. A stopped server leaves work queued. Open **Intake** in the browser or use:
+The worker prepares text first, then runs any authorized paid stages. A stopped server leaves work queued; closing the Reading Room window stops the server it started. Open **Intake** in the window or browser, or use:
 
 ```sh
 ./bin/library intake status --json

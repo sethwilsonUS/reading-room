@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from pathlib import Path
 
-from .storage import digest
+from .storage import digest, open_sqlite
 
 
 def _hash(text):
@@ -17,7 +16,7 @@ def snapshot(lib):
     if not lib._active():
         return
     path = lib.state / 'passage-history.sqlite3'
-    with sqlite3.connect(path) as history, lib._db() as old:
+    with open_sqlite(path) as history, lib._db() as old:
         history.execute('CREATE TABLE IF NOT EXISTS extents(id TEXT PRIMARY KEY,work_id TEXT,data TEXT)')
         known = {r[0] for r in history.execute('SELECT id FROM extents')}
         sections = {r['id']: dict(r) for r in old.execute('SELECT * FROM sections')}
@@ -42,7 +41,7 @@ def resolve(lib, passage_id, db=None, *, verify_bytes=False):
     path = lib.state / 'passage-history.sqlite3'
     if not path.exists():
         return None
-    with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as history:
+    with open_sqlite(f'file:{path}?mode=ro', uri=True) as history:
         row = history.execute('SELECT data FROM extents WHERE id=?', (passage_id,)).fetchone()
     if not row:
         return None

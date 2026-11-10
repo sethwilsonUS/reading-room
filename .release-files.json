@@ -28,6 +28,7 @@
     "scripts/export_web_schema.py",
     "scripts/test_web_server.py",
     "scripts/manage_skills.py",
+    "scripts/build_mac_app.py",
     "scripts/setup.py",
     "scripts/check_public_release.py",
     "scripts/check_docs.py",
@@ -46,7 +47,8 @@
     "docs",
     "examples",
     "skills",
-    ".github"
+    ".github",
+    "macos"
   ],
   "exclude_parts": [
     "__pycache__",

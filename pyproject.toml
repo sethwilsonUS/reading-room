@@ -10,8 +10,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{name = "Seth Wilson"}]
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "lxml>=5,<7", "numpy>=2,<3", "usearch>=2,<3", "httpx>=0.28,<1", "tiktoken>=0.8,<1", "pillow>=12,<14", "openai>=2.54,<3"]
+requires-python = ">=3.12,<3.16"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "lxml>=5,<7", "numpy>=2,<3", "usearch>=2,<3", "httpx>=0.28,<1", "tiktoken>=0.8,<1", "pillow>=12,<14", "openai>=2.54,<3", "pywebview>=6.2,<7; sys_platform == 'darwin'"]
 
 [project.optional-dependencies]
 pilot = ["sentence-transformers>=5,<6", "sentencepiece>=0.2,<1"]
@@ -32,7 +32,9 @@ exclude = ["**/node_modules", "**/__pycache__", "**/.pytest_cache", "/.venv", "/
 [tool.hatch.build.targets.sdist]
 # Prune generated discovery links before Hatch deduplicates their target inodes.
 skip-excluded-dirs = true
-include = ["/.gitignore", "/.github", "/frontend/.gitignore", "/src/book_library", "/frontend/src", "/frontend/public", "/frontend/tests", "/frontend/*.json", "/frontend/*.ts", "/frontend/*.js", "/frontend/.prettierignore", "/frontend/index.html", "/scripts/dev_web.py", "/scripts/export_web_schema.py", "/scripts/test_web_server.py", "/scripts/manage_skills.py", "/scripts/setup.py", "/scripts/run_library.py", "/scripts/check_public_release.py", "/scripts/check_docs.py", "/scripts/clean_install_smoke.py", "/scripts/dependency_notices.py", "/tests", "/bin", "/docs", "/README.md", "/GLOSSARY.md", "/AGENTS.md", "/requirements.lock.txt", "/requirements-dev.lock.txt", "/skills", "/examples", "/LICENSE", "/NOTICE.md", "/CONTRIBUTING.md", "/SECURITY.md", "/.env.example", "/.release-files.json"]
+include = ["/.gitignore", "/.github", "/frontend/.gitignore", "/src/book_library", "/frontend/src", "/frontend/public", "/frontend/tests", "/frontend/*.json", "/frontend/*.ts", "/frontend/*.js", "/frontend/.prettierignore", "/frontend/index.html", "/scripts/dev_web.py", "/scripts/export_web_schema.py", "/scripts/test_web_server.py", "/scripts/manage_skills.py", "/scripts/build_mac_app.py", "/macos", "/scripts/setup.py", "/scripts/run_library.py", "/scripts/check_public_release.py", "/scripts/check_docs.py", "/scripts/clean_install_smoke.py", "/scripts/dependency_notices.py", "/tests", "/bin", "/docs", "/README.md", "/GLOSSARY.md", "/AGENTS.md", "/requirements.lock.txt", "/requirements-dev.lock.txt", "/skills", "/examples", "/LICENSE", "/NOTICE.md", "/CONTRIBUTING.md", "/SECURITY.md", "/.env.example", "/.release-files.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A leaked SQLite connection is a bug (the server is long-running); fail fast.
+filterwarnings = ["error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"]

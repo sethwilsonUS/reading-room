@@ -9,8 +9,9 @@ import socket
 import sqlite3
 import sys
 
+from .install_defaults import python_range, supported_python
 from .local_server import server_address
-from .storage import read_json, writer
+from .storage import open_sqlite, read_json, writer
 
 COMMANDS = {'init', 'doctor', 'demo', 'autostart'}
 
@@ -57,7 +58,7 @@ def doctor(lib, *, explicit_root=False):
     def check(name, ok, detail, *, required=True):
         checks.append({'name': name, 'ok': bool(ok), 'required': required, 'detail': detail})
 
-    check('python', sys.version_info[:2] == (3, 12), f'{platform.python_version()}; supported source setup uses Python 3.12')
+    check('python', supported_python(sys.version_info), f'{platform.python_version()}; supported source setup uses Python {python_range()}')
     check('platform', sys.platform == 'darwin', f'{platform.system()} {platform.release()} ({platform.machine()}); macOS is the supported preview platform', required=False)
     check('library_root', lib.root.is_dir(), str(lib.root) if lib.root.is_dir() else 'Directory missing. Run library init or restore the configured directory.')
     ancestor = lib.state
@@ -65,7 +66,7 @@ def doctor(lib, *, explicit_root=False):
         ancestor = ancestor.parent
     check('private_state_writable', ancestor.is_dir() and os.access(ancestor, os.W_OK | os.X_OK), str(lib.state))
     try:
-        with sqlite3.connect(':memory:') as database:
+        with open_sqlite(':memory:') as database:
             database.execute('CREATE VIRTUAL TABLE diagnostic_fts USING fts5(text)')
         check('sqlite_fts5', True, f'SQLite {sqlite3.sqlite_version} supports FTS5')
     except sqlite3.Error:

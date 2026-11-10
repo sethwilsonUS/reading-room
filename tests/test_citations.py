@@ -8,7 +8,7 @@ import pytest
 
 from book_library.citations import cite_passage, validate_bibliography
 from book_library.service import Library
-from book_library.storage import append_jsonl
+from book_library.storage import append_jsonl, open_sqlite
 from test_service import docx, seed
 import test_extract
 
@@ -45,8 +45,7 @@ def test_source_byline_bibliography_respects_field_corrections_and_name_uncertai
     event = {'origin': 'source_byline', 'status': 'confirmed', 'evidence': 'Closing byline matches this volume’s contributor roster.',
              'value': {'type': 'chapter', 'title': 'Learning in Community', 'authors': [{'literal': 'Ronald J. Allen'}],
                        'locator': {'type': 'section', 'value': 'Learning in Community', 'verified': True, 'evidence': 'Source heading'}}}
-    import sqlite3
-    with sqlite3.connect(lib.state/'generations'/lib._active()['database']) as db:
+    with open_sqlite(lib.state/'generations'/lib._active()['database']) as db:
         data = json.loads(db.execute('SELECT data FROM sections WHERE id=?', (hit['section_id'],)).fetchone()[0])
         data['source_bibliography'] = event
         db.execute('UPDATE sections SET data=? WHERE id=?', (json.dumps(data), hit['section_id']))

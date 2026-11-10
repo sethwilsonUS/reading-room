@@ -4,11 +4,12 @@ This is a source-installed macOS technical preview, maintained as a personal pro
 
 ## Supported scope
 
-- Python 3.12 and Node.js 22.22.2+ within 22.x, 24.15.0+ within 24.x, or 26.0.0+ for source setup/builds; 24.x is recommended. Normal use runs the Python server.
+- Python 3.12–3.15 and Node.js 22.22.2+ within 22.x, 24.15.0+ within 24.x, or 26.0.0+ for source setup/builds; 24.x is recommended. Normal use runs the Python server.
 - Local EPUB and DOCX sources, including supported split Word exports.
 - Exact-text retrieval and optional OpenAI `text-embedding-3-large` semantic retrieval.
 - Optional evidence-backed metadata review, with provisional corrections and manual verification.
-- Browser UI and CLI, plus a tested Codex-oriented skill workflow.
+- Native macOS window (`library app` / Reading Room.app), browser UI, and CLI, plus a tested Codex-oriented skill workflow.
+- The window runs under the Python runtime, so its Dock icon and menu-bar name are Python's rather than the Reading Room's. A packaged, signed application is not part of this preview.
 
 Other operating systems are experimental. Native Windows is not supported: the current locking and launchers use Unix facilities. The older local embedding/pilot paths remain internal compatibility functionality, not a second supported setup route.
 

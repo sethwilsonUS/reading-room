@@ -42,7 +42,7 @@ resources, and hidden active content. The server is localhost only.
 
 ## Development
 
-Use `.venv/bin/python` (Python 3.12). Run meaningful pytest checks after code
+Use `.venv/bin/python` (Python 3.12–3.15). Run meaningful pytest checks after code
 changes. Frontend/API changes also require type generation, relevant frontend
 checks, and a build; see `docs/development.md`. Preserve keyboard operation,
 accessible names, focus behavior, and clear status/error feedback. Do not claim

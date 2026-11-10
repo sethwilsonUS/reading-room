@@ -12,7 +12,7 @@ import pytest
 from book_library import semantic as provider
 from book_library import semantic_library as sem
 from book_library.budget import Budget, BudgetExceeded
-from book_library.storage import atomic_json, read_json
+from book_library.storage import atomic_json, open_sqlite, read_json
 from test_service import docx, seed
 from test_semantic import fake_openai
 
@@ -290,8 +290,7 @@ def test_pilot_identical_vectors_reused_without_modifying_frozen_records(library
     config = provider.embedding_config('local')
     with sem._cache(sem._root(lib), config) as cache:
         snapshot, path = sem._snapshot(lib, config, cache)
-    import sqlite3
-    with sqlite3.connect(path) as db:
+    with open_sqlite(path) as db:
         windows = [{'id': row[1], 'text': row[2], 'work_id': f'work{i%12}', 'passage_id': f'passage{i}'} for i,row in enumerate(db.execute('SELECT ordinal,id,text FROM windows'))]
     windows = [{**windows[i % 2], 'id': f'w{i}', 'work_id': f'work{i}'} for i in range(12)]
     queries = [{'query': f'question{i}'} for i in range(24)]

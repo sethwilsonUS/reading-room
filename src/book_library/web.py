@@ -10,7 +10,6 @@ import hmac
 from html import escape
 import json
 import logging
-import os
 from pathlib import Path
 import re
 import secrets
@@ -88,7 +87,7 @@ def create_app(library: Library | None = None, *, enable_intake_worker: bool | N
         enable_intake_worker = library is None
     if library is None:
         from book_library.service import Library
-        library = Library(Path(os.environ.get("LIBRARY_ROOT", "~/dev/books")).expanduser())
+        library = Library()
     lifespan = None
     if enable_intake_worker:
         from .intake_worker import worker_lifespan
