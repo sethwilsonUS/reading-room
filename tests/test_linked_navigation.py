@@ -160,8 +160,15 @@ def test_conflicting_explicit_index_parents_do_not_choose_an_ancestry(tmp_path, 
         'deep.xhtml': '<p id="deep">Further Discussion</p><p>Substantive explanation.</p>',
     }, nav)
     source, _ = prepare(path, tmp_path / 'state')
-    assert next(b for b in source if b['locator'].get('member') == 'EPUB/opening.xhtml')['kind'] == 'paragraph'
-    assert next(b for b in source if b['locator'].get('member') == 'EPUB/deep.xhtml')['kind'] == 'paragraph'
+    opening = next(b for b in source if b['locator'].get('member') == 'EPUB/opening.xhtml')
+    deep = next(b for b in source if b['locator'].get('member') == 'EPUB/deep.xhtml')
+    if declare_nested:
+        assert opening['kind'] == deep['kind'] == 'paragraph'
+    else:
+        # The root explicitly makes Opening Discussion a sibling of Alpha;
+        # Alpha's link back into that later sibling is outside its own interval.
+        assert opening['heading_path'] == ['Study Notes', 'Opening Discussion']
+        assert deep['heading_path'] == ['Study Notes', 'Opening Discussion', 'Further Discussion']
 
 
 def test_unresolved_boilerplate_target_does_not_abort_linked_index_recovery(tmp_path):
@@ -181,3 +188,78 @@ def test_unresolved_boilerplate_target_does_not_abort_linked_index_recovery(tmp_
     assert wrapper['is_boilerplate'] is True
     assert any(i['code'] == 'unresolved_navigation_target' and i['navigation_label'] == 'Unavailable Label'
                for i in report['issues'])
+
+
+@pytest.mark.parametrize('resource_first', [True, False])
+def test_non_text_index_link_does_not_suppress_later_container_target(tmp_path, monkeypatch, resource_first):
+    from book_library.extract import _Package
+    links = ['<a href="image.png#image">Image</a>', '<a href="alpha.xhtml#alpha">Alpha Notes</a>']
+    if not resource_first:
+        links.reverse()
+    path = epub(tmp_path / 'source.epub', {
+        'index.xhtml': '<p id="notes">Study Notes</p>' + ''.join(f'<p>{link}</p>' for link in links),
+        'alpha.xhtml': '<div id="alpha"><p>Alpha Notes</p><p>Substantive discussion.</p></div>',
+    })
+    with ZipFile(path, 'a') as z:
+        z.writestr('EPUB/image.png', b'\x89PNG\r\n\x1a\n')
+    inspected = []
+    original_xml = _Package.xml
+    def inspect(package, member):
+        inspected.append(member)
+        return original_xml(package, member)
+    monkeypatch.setattr(_Package, 'xml', inspect)
+    source, _ = prepare(path, tmp_path / 'state')
+    alpha = next(b for b in source if b['locator'].get('member') == 'EPUB/alpha.xhtml')
+    assert alpha['heading_path'] == ['Study Notes', 'Alpha Notes']
+    assert 'EPUB/image.png' not in inspected
+
+
+def test_unreadable_member_does_not_suppress_later_container_target(tmp_path, monkeypatch):
+    from book_library.extract import _Package, ExtractionError
+    path = epub(tmp_path / 'source.epub', {
+        'index.xhtml': '<p id="notes">Study Notes</p><p><a href="alpha.xhtml#alpha">Alpha Notes</a></p><p><a href="beta.xhtml#beta">Beta Notes</a></p>',
+        'alpha.xhtml': '<div id="alpha"><p>Alpha Notes</p><p>First discussion.</p></div>',
+        'beta.xhtml': '<div id="beta"><p>Beta Notes</p><p>Second discussion.</p></div>',
+    })
+    extraction = extract_file(path)
+    original = deepcopy(extraction['blocks'])
+    original_xml = _Package.xml
+    def inspect(package, member):
+        if member == 'EPUB/alpha.xhtml':
+            raise ExtractionError('Synthetic unreadable member')
+        return original_xml(package, member)
+    monkeypatch.setattr(_Package, 'xml', inspect)
+    file = {'id': 'file_test', 'sha256': 'synthetic', 'path': str(path), 'available': True, 'state': 'ready'}
+    prepare_work(SimpleNamespace(state=tmp_path / 'state'), {'id': 'work_test', 'title': 'Synthetic Notes'},
+                 [file], {file['id']: extraction})
+    source = extraction['blocks']
+    assert [(b['text'], b['locator'], b['ordinal']) for b in source] == [
+        (b['text'], b['locator'], b['ordinal']) for b in original]
+    beta = next(b for b in source if b['locator'].get('member') == 'EPUB/beta.xhtml')
+    assert beta['heading_path'] == ['Study Notes', 'Beta Notes']
+
+
+def test_out_of_interval_sibling_link_does_not_create_parent_conflict(tmp_path):
+    path = epub(tmp_path / 'source.epub', {
+        'index.xhtml': '<p id="notes">Study Notes</p><p><a href="alpha.xhtml#alpha">Alpha Notes</a></p><p><a href="beta.xhtml#beta">Beta Notes</a></p>',
+        'alpha.xhtml': '<p id="alpha">Alpha Notes</p><p><a href="entry.xhtml#entry">Entry</a></p>',
+        'beta.xhtml': '<p id="beta">Beta Notes</p><p><a href="entry.xhtml#entry">Entry</a></p>',
+        'entry.xhtml': '<p id="entry">Entry</p><p>Substantive discussion.</p>',
+    })
+    source, _ = prepare(path, tmp_path / 'state')
+    entry = next(b for b in source if b['locator'].get('member') == 'EPUB/entry.xhtml')
+    assert entry['heading_path'] == ['Study Notes', 'Beta Notes', 'Entry']
+
+
+def test_rejected_sibling_cannot_transfer_its_child_to_another_index(tmp_path):
+    path = epub(tmp_path / 'source.epub', {
+        'index.xhtml': '<p id="notes">Study Notes</p><p><a href="alpha.xhtml#alpha">Alpha Notes</a></p><p><a href="beta.xhtml#beta">Beta Notes</a></p>',
+        'supplement.xhtml': '<p id="supplement">Supplement Index</p><p><a href="beta.xhtml#beta">Beta Notes</a></p>',
+        'alpha.xhtml': '<p id="alpha">Alpha Notes</p><p><a href="closing.xhtml#closing">Closing Discussion</a></p>',
+        'beta.xhtml': '<p id="beta">Beta Notes</p><p><a href="closing.xhtml#closing">Closing Discussion</a></p>',
+        'closing.xhtml': '<p id="closing">Closing Discussion</p><p>Substantive discussion.</p>',
+    }, '<a href="index.xhtml#notes">Study Notes</a><ol><li><a href="supplement.xhtml#supplement">Supplement Index</a></li></ol>')
+    source, _ = prepare(path, tmp_path / 'state')
+    assert next(b for b in source if b['locator'].get('member') == 'EPUB/alpha.xhtml')['kind'] == 'heading'
+    for member in ['EPUB/beta.xhtml', 'EPUB/closing.xhtml']:
+        assert next(b for b in source if b['locator'].get('member') == member)['kind'] == 'paragraph'

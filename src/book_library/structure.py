@@ -15,7 +15,7 @@ import re
 from .source_structure import apply_reviewed_structure
 from .storage import atomic_json, stable
 
-ANALYZER_VERSION = '8'
+ANALYZER_VERSION = '9'
 STRUCTURE_SCHEMA = '''
 CREATE TABLE IF NOT EXISTS outline_nodes(
  id TEXT PRIMARY KEY, work_id TEXT, parent_id TEXT, ordinal INTEGER,
@@ -334,25 +334,30 @@ def _linked_navigation_recovery(by_member, anchors, files, navigation, report):
             continue
         edges[_key(file, heading)][_key(f, b)] = (f, b, label, member, link_block)
 
-    pending = [(_key(f, b), boundary(f, b, b['structure_toc_level'])) for f, b in roots]
+    pending = [(_key(f, b), b['structure_toc_level'], boundary(f, b, b['structure_toc_level'])) for f, b in roots]
     seen, parents = set(), defaultdict(set)
     while pending:
-        parent, end = pending.pop()
-        if (parent, end) in seen:
+        parent, level, end = pending.pop()
+        if (parent, level, end) in seen:
             continue
-        seen.add((parent, end))
-        for child, (_, b, *_) in edges[parent].items():
-            if end is not None and b['ordinal'] >= end:
-                continue
+        seen.add((parent, level, end))
+        children = sorted(((child, edge) for child, edge in edges[parent].items()
+                           if end is None or edge[1]['ordinal'] < end),
+                          key=lambda item: item[1][1]['ordinal'])
+        for i, (child, (f, b, *_)) in enumerate(children):
             parents[child].add(parent)
             if child in indexes:
-                pending.append((child, end))
+                limits = [end, boundary(f, b, level + 1)]
+                if i + 1 < len(children):
+                    limits.append(children[i + 1][1][1]['ordinal'])
+                child_end = min((limit for limit in limits if limit is not None), default=None)
+                pending.append((child, level + 1, child_end))
 
     pending = [(f, b, b['structure_toc_level'], boundary(f, b, b['structure_toc_level'])) for f, b in roots]
     while pending:
         file, heading, parent_level, end = pending.pop()
         children = sorted((edge for child, edge in edges[_key(file, heading)].items()
-                           if len(parents[child]) == 1 and (end is None or edge[1]['ordinal'] < end)),
+                           if parents[child] == {_key(file, heading)} and (end is None or edge[1]['ordinal'] < end)),
                           key=lambda edge: edge[1]['ordinal'])
         for i, (f, b, label, member, link_block) in enumerate(children):
             if b.get('structure_toc_level') is not None:
@@ -380,17 +385,25 @@ def _epub_anchor_targets(entries, files, navigation):
     from .extract import _Package, _local, _is_page, HTML_BLOCKS, IGNORED_HTML, XML_ID
     from pathlib import Path
     wanted = defaultdict(set)
+    # Only members with extracted text can supply source headings. Image and
+    # other binary links must never become XML fallback candidates.
+    text_members = {(f['id'], b.get('locator', {}).get('member')) for f, b in entries
+                    if _readable(b) and b.get('kind') in {'paragraph', 'heading'}}
+    def want(file, target):
+        key = (file['id'], target.get('member'))
+        if key in text_members:
+            wanted[key].add(target.get('element_id'))
     contents_members = {(f['id'], target['member']) for f, target, label, *_ in navigation
                         if _norm(label) in {'contents', 'table of contents'}}
     for f, target, *_ in navigation:
-        wanted[(f['id'], target['member'])].add(target.get('element_id'))
+        want(f, target)
     for f, b in entries:
         if ((f['id'], b.get('locator', {}).get('member')) in contents_members or b.get('is_navigation')
                 or any(_norm(p) in {'contents', 'table of contents'} for p in b.get('heading_path', []))):
             for link in b.get('links', []):
                 target = link.get('target') or {}
                 if target.get('member'):
-                    wanted[(f['id'], target['member'])].add(target.get('element_id'))
+                    want(f, target)
     source_text = defaultdict(list)
     for f, b in entries:
         if _readable(b) and b.get('kind') in {'paragraph', 'heading'}:
@@ -409,7 +422,11 @@ def _epub_anchor_targets(entries, files, navigation):
             for (fid, member), ids in wanted.items():
                 if fid != f['id'] or member not in package.names:
                     continue
-                root = package.xml(member)
+                try:
+                    root = package.xml(member)
+                except (OSError, ValueError):
+                    # One unreadable member must not suppress later targets.
+                    continue
                 parents = {c: n for n in root.iter() for c in n}
                 # Match the extractor's block walk counter, not a text search:
                 # a poem may repeat its exact title as a later line.
