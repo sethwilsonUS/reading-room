@@ -13,7 +13,7 @@ import json
 import re
 
 from .source_structure import apply_reviewed_structure
-from .storage import atomic_json, stable
+from .storage import stable
 
 ANALYZER_VERSION = '9'
 STRUCTURE_SCHEMA = '''
@@ -719,10 +719,10 @@ def prepare_work(lib, work, files, extractions):
     source fingerprints and extraction shape, not merely book titles.
     """
     signature = _cache_key(work, files, extractions)
-    cache = lib.state / 'structure-analysis' / (signature + '.json')
-    if cache.exists():
+    from .structure_cache import load_structure_cache, save_structure_cache
+    saved = load_structure_cache(lib.state, signature)
+    if saved is not None:
         try:
-            saved = json.loads(cache.read_text())
             if saved.get('version') == ANALYZER_VERSION:
                 for fid, patches in saved['patches'].items():
                     for ordinal, fields in patches:
@@ -793,7 +793,7 @@ def prepare_work(lib, work, files, extractions):
             if update:
                 values.append([ordinal, update])
         patches[fid] = values
-    atomic_json(cache, {'version': ANALYZER_VERSION, 'report': report, 'patches': patches})
+    save_structure_cache(lib.state, signature, {'version': ANALYZER_VERSION, 'report': report, 'patches': patches})
     return report
 
 

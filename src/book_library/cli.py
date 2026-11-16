@@ -37,6 +37,8 @@ def parser():
     cite=sub.add_parser('cite'); cite.add_argument('passage_id'); cite.add_argument('--locator',help='JSON locator with type, value, verified and evidence'); cite.add_argument('--format',choices=['all','note','short','bibliography','markdown'],default='all')
     cite.add_argument('--segment',help='First source block ID of a separately credited portion; see component_citations')
     sub.add_parser('status')
+    storage=sub.add_parser('storage',help='Inspect disk usage or compact recognized derived caches without indexing or paid work')
+    storage.add_argument('action',nargs='?',choices=['report','compact'],default='report')
     books=sub.add_parser('books'); books.add_argument('query',nargs='?',default=''); books.add_argument('--limit',type=int,default=50); books.add_argument('--offset',type=int,default=0)
     browse=sub.add_parser('browse',help='Browse the shelves like the interface: sort, filter, or list books with one classification')
     browse.add_argument('query',nargs='?',default='',help='Title or creator text')
@@ -103,6 +105,9 @@ def run(args):
             if args.action=='resume': return lib.resume_intake(args.intake_id,expected_version=args.version)
             return lib.undo_intake(args.intake_id,event_id=args.event,expected_version=args.version)
         case 'status': return lib.status()
+        case 'storage':
+            from .storage_maintenance import storage
+            return storage(lib,compact=args.action=='compact')
         case 'search':
             filters={}
             for f in args.filter:

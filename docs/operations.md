@@ -76,6 +76,47 @@ To extend or rebuild an older E5-windowed index, install the optional compatibil
 
 This adds Transformers and SentencePiece, not PyTorch or a local embedding model. First use may download the pinned public tokenizer assets needed by that index. It does not grant permission to send source text or start a paid build. Keep the old index's recorded tokenizer revision and caches; do not delete them to force the new windowing scheme. Ordinary querying of the existing OpenAI index does not need this compatibility installation.
 
+## Inspect and compact local storage
+
+```sh
+./bin/library storage --json
+./bin/library storage compact --json
+```
+
+The first command is read-only. It reports logical and allocated disk usage,
+recognized obsolete indexes, legacy structure caches eligible for compression,
+and paths that cannot safely be classified. Measurements are a point-in-time
+view; concurrent indexing may change them. `reclaimable_bytes` counts known
+disposable files, while `compressible_bytes` is the input size of eligible
+legacy caches, not a promise of compression savings.
+
+`storage compact` takes the publication locks and replans before changing
+anything. It compresses recognized legacy structure caches losslessly and
+removes eligible obsolete structure caches and semantic generations/snapshots.
+Semantic cleanup defers while searches are using its files. Deferred work and
+unknown paths remain visible in the command output; retry after active work
+finishes. Missing or inconsistent ownership information is preserved for review.
+This command neither rebuilds an index nor makes paid requests.
+
+Exact indexing keeps its current and previous generation. Structure caches use
+gzip and retain references from the retained exact generations; maintenance also
+runs after a successful or unchanged exact sync. Semantic indexing retains its
+current and previous generation and the snapshots they need. New semantic
+generations share their immutable snapshot lookup database instead of copying
+its text into another database. Older generation-local lookup files remain
+readable and are retired through normal generation retention.
+
+Interrupted semantic builds and deletions record their owned temporary files,
+so later maintenance can resume cleanup. Unrecognized legacy leftovers are not
+automatically treated as disposable. Cleanup preserves original books, paid
+embedding and query caches, the frozen pilot, permissions, cost records,
+curation, selections, citation history, and research-use records. Extraction
+caches are outside this compaction command's scope.
+
+For obsolete optional development dependencies, see
+[recreating the development environment](development.md). Do not delete the
+whole `.library` directory to reclaim space.
+
 ## Back up and restore
 
 Stop the server before taking a consistent backup. Back up the **whole books directory, including hidden `.library` state**, plus retained downloads/provenance stored elsewhere. Preserve your credential file separately in appropriate private storage. The source checkout alone is not a library backup.

@@ -38,7 +38,20 @@ class FakeWebview:
 
 
 @pytest.fixture
-def lib(tmp_path):
+def lib(tmp_path, monkeypatch):
+    # Server/window ownership is a Python contract. Serve a synthetic shell so
+    # these tests also run from a source checkout without a frontend build;
+    # browser and installed-source checks exercise the actual React bundle.
+    from book_library import web
+    frontend = tmp_path / 'frontend'
+    frontend.mkdir()
+    (frontend / 'index.html').write_text('<!doctype html><html lang="en"><title>Synthetic desktop test</title><body>Test shell</body></html>')
+    create_app = web.create_app
+
+    def app_with_test_frontend(library, **kwargs):
+        return create_app(library, frontend_dir=frontend, **kwargs)
+
+    monkeypatch.setattr(web, 'create_app', app_with_test_frontend)
     return create_demo(tmp_path / 'demo')
 
 

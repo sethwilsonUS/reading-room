@@ -36,6 +36,7 @@ The library opens in its own window; closing the window stops the server it star
 - An agent-friendly CLI: `library search QUERY --with-context --json` returns the interface's results with surrounding source text and citation drafts.
 - Editable metadata, research focuses, classifications, and separate research-use history.
 - Durable source selections and corrections that survive index rebuilds.
+- Local storage reporting and cache compaction without rebuilding indexes or making paid requests.
 
 Optional OpenAI features add **semantic search** and **metadata review**. They have separate opt-ins and share configured spending controls. A fresh installation makes no paid requests, even if an API key is already in your environment. [Understand AI, privacy, and costs](docs/ai-and-privacy.md) before enabling either feature.
 

@@ -32,6 +32,25 @@ The complete skill sources live in [`skills/`](../skills/README.md). Setup creat
 
 The normal lock excludes the experimental local embedding stack. Historical pilot code remains for compatibility, outside the supported setup. Do not run a benchmark or pilot against a personal library as a test fixture.
 
+### Refresh an older environment
+
+Setup updates installed dependencies but does not uninstall old optional packages. An environment used for the historical local-model pilot can therefore retain PyTorch and related packages that normal OpenAI search no longer needs.
+
+To replace that environment, first stop the Reading Room window/server and any [managed login service](operations.md#start-at-login). From the checkout, move the old environment into ignored local work storage before running setup again:
+
+```sh
+mkdir -p _work/environment-backup &&
+test ! -e _work/environment-backup/.venv &&
+mv .venv _work/environment-backup/.venv &&
+./bin/setup --non-interactive &&
+.venv/bin/python -m pip install -r requirements-dev.lock.txt &&
+./bin/library doctor --json
+```
+
+Stop if the move or setup fails. The backup destination must be unused; never overwrite an earlier backup. Keep `.reading-room/local.json`, the books directory and its `.library`, and credential/tokenizer caches in place. Setup reuses the saved library location and permissions. Existing indexes built with the legacy tokenizer still need the [compatibility extra](operations.md#continue-an-older-semantic-index) before extending them; do not change their tokenizer or re-embed as part of environment cleanup.
+
+Keep the old environment until diagnostics, tests, and a local reading check pass, then remove only `_work/environment-backup/.venv` to reclaim its space. To roll back a failed refresh, move the newly created `.venv` aside and restore the backup to its original `.venv` path; virtual environments are not usable at arbitrary relocated paths. This procedure does not clean or rebuild library indexes.
+
 ## Run checks
 
 ```sh
@@ -52,6 +71,10 @@ Python tests construct temporary synthetic EPUB/DOCX sources and mock providers.
 `library app` (`src/book_library/desktop.py`) wraps the same server in a pywebview window; see [ADR 0008](adr/0008-native-desktop-window.md). `Reading Room.app` is generated from `macos/` by `scripts/build_mac_app.py` during setup and is not committed. Rebuild it with `--force` after editing those sources if setup has not run.
 
 API type generation is offline: it exports the FastAPI schema without opening a real library or starting the worker. Commit the generated OpenAPI/TypeScript contracts with relevant API changes. Frontend build output under `src/book_library/frontend_dist` is generated locally and excluded from Git.
+
+### Continuous integration
+
+The Verify workflow runs the complete Python test suite on Python 3.12 and 3.15, the oldest and newest supported interpreters. The Python 3.12 source-release job also runs source setup, frontend and browser checks, the installed-source smoke test, and package/privacy checks. The Python 3.15 compatibility job installs the Python dependencies and runs the same Python suite without repeating that shared release work. Pip downloads are cached by interpreter and lockfiles, and npm downloads by the frontend lockfile; installed environments are recreated for every job. New pushes cancel superseded runs for the same branch or pull request.
 
 ## Run the development servers
 
