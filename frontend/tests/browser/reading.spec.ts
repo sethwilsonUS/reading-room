@@ -161,7 +161,9 @@ test('returning from a reading unit restores the originating contents link', asy
   const link = page.getByRole('link', { name: 'A gathering', exact: true });
   await expect(link).toBeVisible();
   await link.click();
-  await expect(page.getByRole('heading', { name: 'A gathering', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'A gathering', level: 1, exact: true }),
+  ).toBeVisible();
   await page
     .locator('main nav.breadcrumb')
     .getByRole('link', { name: 'The River and the Thread', exact: true })
