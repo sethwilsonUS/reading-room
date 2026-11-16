@@ -957,6 +957,8 @@ def apply_review(lib, target_id, selected_fields, *, revision, expected_version,
             return {**receipt, 'duplicate': True}
         _check_version(draft, expected_version)
         _check_revision(context, draft, revision)
+        if not selected:
+            raise ValueError('Choose at least one draft field to apply.')
         proposed = _validate_changes(context, changes if changes is not None else draft['changes'])
         if changes is not None:
             if set(proposed) != set(draft['changes']) or any(proposed[k]['value'] != draft['changes'][k]['value'] for k in proposed):

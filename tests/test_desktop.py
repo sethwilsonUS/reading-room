@@ -23,12 +23,15 @@ class FakeWebview:
 
     def __init__(self):
         self.windows, self.start_options, self.statuses = [], [], []
+        self.settings = {'ALLOW_DOWNLOADS': False}
+        self.settings_at_start = []
 
     def create_window(self, **options):
         self.windows.append(options)
 
     def start(self, **options):
         self.start_options.append(options)
+        self.settings_at_start.append(dict(self.settings))
         url = self.windows[-1]['url']
         self.statuses.append(httpx.get(url + '/api/status', timeout=10).json())
         assert httpx.get(url + '/', timeout=10).status_code == 200
@@ -47,10 +50,36 @@ def test_window_owns_a_server_and_stops_it_on_close(lib):
     assert webview.windows[0]['url'] == f'http://127.0.0.1:{port}'
     assert webview.windows[0]['title'] == 'The Reading Room'
     assert webview.start_options == [{'private_mode': False}]
+    assert webview.settings_at_start == [{'ALLOW_DOWNLOADS': True}]
     assert webview.statuses[0]['root'] == str(lib.root)
     assert not port_in_use('127.0.0.1', port)
     # Citation links follow the address the window actually uses.
     assert lib.cite(lib.search('copper birds', engine='exact')['direct'][0]['id'])['links']['local_citation'].startswith(f'http://127.0.0.1:{port}/')
+
+
+@pytest.mark.parametrize('error', [KeyboardInterrupt, RuntimeError])
+def test_failed_startup_stops_the_owned_server_before_opening_a_window(lib, error):
+    port = free_port()
+    webview = FakeWebview()
+    running = desktop._default_server(lib, '127.0.0.1', port)
+    start = running.start
+
+    def failed_start():
+        # The server thread can be live before startup returns to the caller.
+        start()
+        raise error('Startup interrupted before the window opened.')
+
+    running.start = failed_start
+    try:
+        with pytest.raises(error):
+            desktop.run_app(lib, port, webview=webview, server_factory=lambda *args: running)
+        assert running.server.should_exit
+        assert not running.thread.is_alive()
+        assert not port_in_use('127.0.0.1', port)
+        assert webview.windows == []
+    finally:
+        # Keep the regression test safe even if startup cleanup breaks again.
+        running.stop()
 
 
 def test_window_reuses_a_running_server_for_the_same_library_and_leaves_it_running(lib):

@@ -33,7 +33,21 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Source setup without personal configuration
-        run: ./bin/setup --root "$RUNNER_TEMP/Reading Room books" --non-interactive
+        # Use setup-python's interpreter; bin/setup prefers the newest on PATH.
+        run: python scripts/setup.py --root "$RUNNER_TEMP/Reading Room books" --non-interactive
+      - name: Verify the environment Python version
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          import sys
+          expected = os.environ['EXPECTED_PYTHON']
+          actual = f'{sys.version_info.major}.{sys.version_info.minor}'
+          if actual != expected:
+              raise SystemExit(f'Expected Python {expected}, but setup created Python {actual}.')
+          print(f'Verified Python {actual}')
+          PY
       - name: Development dependencies
         run: .venv/bin/python -m pip install -r requirements-dev.lock.txt
       - name: Public boundary and documentation

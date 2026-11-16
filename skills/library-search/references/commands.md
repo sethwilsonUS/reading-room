@@ -43,7 +43,10 @@ unknown metadata, so omit them when merely expressing a preference.
 warnings as the interface's search. Each hit also gets a `context` object:
 `before`, `passage` (the matched text), and `after` are plain source text.
 `section`, `location`, and `previous_passage`/`next_passage` are included for
-navigation. Each hit also gets a `citation` object with the full note, short
+navigation. Context follows the matching excerpt within a long passage;
+`offset`, `previous_offset`, and `next_offset` identify source-character
+positions for continuing with `library read PASSAGE_ID --offset OFFSET --json`.
+Each hit also gets a `citation` object with the full note, short
 note, bibliography, `ready`, `needs_review`, `missing_fields`, and `warnings`.
 It is a draft until those warnings are resolved. Engine defaults are those of
 ordinary search; add `--exact` for wholly local retrieval.

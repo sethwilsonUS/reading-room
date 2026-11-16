@@ -30,9 +30,9 @@ def _join(blocks: list[dict[str, Any]]) -> str:
     return '\n\n'.join(block['text'] for block in blocks if block.get('text', '').strip())
 
 
-def source_context(lib, passage_id: str, *, context: int, max_chars: int) -> dict[str, Any]:
+def source_context(lib, passage_id: str, *, context: int, max_chars: int, offset: int = 0) -> dict[str, Any]:
     """Matched passage plus surrounding text, split so the match stays identifiable."""
-    reading = lib.read(passage_id, context=context, max_chars=max_chars)
+    reading = lib.read(passage_id, context=context, offset=offset, max_chars=max_chars)
     before, match, after = [], [], []
     for block in reading['blocks']:
         if block.get('selected'):
@@ -42,6 +42,7 @@ def source_context(lib, passage_id: str, *, context: int, max_chars: int) -> dic
     text = {'before': _join(before), 'passage': _join(match), 'after': _join(after)}
     return {**text, 'chars': sum(map(len, text.values())), 'section': reading['section'].get('title', ''),
             'location': reading['passage'].get('location', ''), 'truncated': reading['truncated'],
+            'offset': reading['offset'], 'previous_offset': reading.get('previous_offset'),
             'next_offset': reading.get('next_offset'), 'previous_passage': reading.get('previous'),
             'next_passage': reading.get('next'), 'warnings': reading.get('warnings', [])}
 
@@ -49,6 +50,38 @@ def source_context(lib, passage_id: str, *, context: int, max_chars: int) -> dic
 def citation_summary(lib, passage_id: str) -> dict[str, Any]:
     citation = lib.cite(passage_id)
     return {key: citation[key] for key in CITATION_FIELDS if key in citation}
+
+
+def _source_excerpt(hit: dict[str, Any]) -> tuple[int, str]:
+    start = max(0, int(hit.get('excerpt_start', hit.get('read_offset', 0))))
+    snippet = hit['text']
+    if start and snippet.startswith('…'):
+        snippet = snippet[1:]  # The search display ellipsis has no source offset.
+    return start, snippet
+
+
+def _context_offset(hit: dict[str, Any], query: str, max_chars: int) -> int:
+    from .service import excerpt_range
+
+    # Try the opening slice when characters fit; verify actual block coverage below.
+    allowance = max(MIN_HIT_CHARS, min(max_chars, 45000))
+    start, snippet = _source_excerpt(hit)
+    if int(hit.get('excerpt_end', start + len(snippet))) <= allowance:
+        return 0
+    # A search excerpt can itself exceed a small context budget (700 vs. 500
+    # characters). Reuse search's selection so a match near its end still fits.
+    bounded = excerpt_range(snippet, [query.strip('"'), *hit.get('matched_terms', [])], limit=allowance)
+    return start + bounded['excerpt_start']
+
+
+def _context_anchor(hit: dict[str, Any], query: str) -> int:
+    from .service import match_offset
+
+    start, snippet = _source_excerpt(hit)
+    match = match_offset(snippet, [query.strip('"'), *hit.get('matched_terms', [])])
+    if match is not None:
+        return start + match
+    return int(hit.get('semantic_window', {}).get('char_start', start))
 
 
 def search_with_context(lib, query: str, *, context: int = DEFAULT_CONTEXT_PASSAGES,
@@ -72,7 +105,18 @@ def search_with_context(lib, query: str, *, context: int = DEFAULT_CONTEXT_PASSA
                 hit['context_omitted'] = 'The total context budget was used by earlier results. Use `library read PASSAGE_ID --json`.'
             else:
                 try:
-                    hit['context'] = source_context(lib, hit['id'], context=context, max_chars=min(max_chars, remaining))
+                    allowance = min(max_chars, remaining)
+                    offset = _context_offset(hit, query, allowance)
+                    hit['context'] = source_context(lib, hit['id'], context=context, max_chars=allowance, offset=offset)
+                    end = hit['context']['next_offset']
+                    if end is not None:
+                        anchor = _context_anchor(hit, query)
+                        if end <= anchor:
+                            # The reader also caps output at 80 blocks. A prefix
+                            # of 180 characters fits at most 60 one-character
+                            # blocks plus separators, leaving room for the match.
+                            hit['context'] = source_context(lib, hit['id'], context=context, max_chars=allowance,
+                                                            offset=max(offset, anchor - 180))
                 except ValueError as exc:
                     hit['context'] = None
                     hit['context_error'] = str(exc)
