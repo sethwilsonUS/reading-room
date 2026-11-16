@@ -304,7 +304,9 @@ class Library:
                 from .semantic_library import refresh_acquisition_statuses
                 if refresh_acquisition_statuses(self,cat):
                     atomic_json(self.state/'catalog.json',cat)
-                return {'changed':False,'extracted':0,'generation':current['generation'],'seconds':round(time.perf_counter()-start,3),'errors':errors}
+                from .storage_maintenance import maintain_structure_caches
+                retention=maintain_structure_caches(self)
+                return {'changed':False,'extracted':0,'generation':current['generation'],'seconds':round(time.perf_counter()-start,3),'errors':errors,'structure_retention':retention}
             # Extraction caches are disposable. Before publishing a new generation,
             # repair missing/corrupt derived data from its intact source. A damaged
             # cache must not disable healthy books or require another download.
@@ -355,7 +357,9 @@ class Library:
             # Retain previous generation for recovery. In-flight readers retain an open file descriptor.
             generations=sorted((self.state/'generations').glob('*.sqlite3'),key=lambda p:p.stat().st_mtime,reverse=True)
             for obsolete in generations[2:]: obsolete.unlink(missing_ok=True)
-            return {'changed':True,'extracted':extracted,'generation':gen,'seconds':round(time.perf_counter()-start,3),'errors':errors}
+            from .storage_maintenance import maintain_structure_caches
+            retention=maintain_structure_caches(self)
+            return {'changed':True,'extracted':extracted,'generation':gen,'seconds':round(time.perf_counter()-start,3),'errors':errors,'structure_retention':retention}
 
     @staticmethod
     def _section_evidence(file,block,following=''):

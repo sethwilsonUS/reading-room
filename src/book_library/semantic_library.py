@@ -19,7 +19,7 @@ import numpy as np
 from . import semantic as provider
 from . import openai_windowing
 from .budget import Budget
-from .semantic_retention import prune_locked, semantic_reader
+from .semantic_retention import begin_operation, finish_operation, prune_locked, semantic_reader
 from .storage import atomic_json, now, open_sqlite, read_json, stable, uid, writer
 
 SCHEMA_VERSION = 1
@@ -347,34 +347,35 @@ def _snapshot(lib, config, cache, *, allowed_file_ids=None, source_bindings=None
     meta_path = folder / (snapshot_id + '.json')
     existing = read_json(meta_path)
     if existing and target.exists():
-        with open_sqlite(target) as check:
+        with open_sqlite(target.as_uri() + '?mode=ro', uri=True) as check:
             if check.execute('PRAGMA quick_check').fetchone()[0] == 'ok':
                 _validate_files(lib, existing)
                 return existing, target
     temporary = folder / (snapshot_id + '.pending.sqlite3')
+    begin_operation(_root(lib), 'snapshot', snapshot_id)
     temporary.unlink(missing_ok=True)
     db = sqlite3.connect(temporary)
-    db.executescript('''
-        CREATE TABLE windows(ordinal INTEGER PRIMARY KEY, id TEXT UNIQUE, work_id TEXT, passage_id TEXT, section_id TEXT, text_hash TEXT, text TEXT, file_ids TEXT, char_start INTEGER, char_end INTEGER);
-        CREATE INDEX window_hash ON windows(text_hash);
-    ''')
-    native_openai = config.get('window_tokenizer') == openai_windowing.TOKENIZER
-    if native_openai:
-        if config.get('window_tokenizer_revision') != openai_windowing.REVISION:
-            raise ValueError('This OpenAI windowing version is unsupported; existing indexes and caches are retained.')
-        tokenizer = openai_windowing.encoding()
-    elif config.get('engine') == 'openai':
-        tokenizer = openai_windowing.legacy_tokenizer(config)
-    else:
-        tokenizer = provider.local_model().tokenizer
-    allowed = set(allowed_file_ids) if allowed_file_ids is not None else None
-    authorized_files = {fid: {'sha256': record['sha256']} for fid, record in cat['files'].items()
-                        if record.get('available') and record.get('state') == 'ready'
-                        and (allowed is None or fid in allowed)}
-    works = set()
-    files = set()
-    counter = 0
     try:
+        db.executescript('''
+            CREATE TABLE windows(ordinal INTEGER PRIMARY KEY, id TEXT UNIQUE, work_id TEXT, passage_id TEXT, section_id TEXT, text_hash TEXT, text TEXT, file_ids TEXT, char_start INTEGER, char_end INTEGER);
+            CREATE INDEX window_hash ON windows(text_hash);
+        ''')
+        native_openai = config.get('window_tokenizer') == openai_windowing.TOKENIZER
+        if native_openai:
+            if config.get('window_tokenizer_revision') != openai_windowing.REVISION:
+                raise ValueError('This OpenAI windowing version is unsupported; existing indexes and caches are retained.')
+            tokenizer = openai_windowing.encoding()
+        elif config.get('engine') == 'openai':
+            tokenizer = openai_windowing.legacy_tokenizer(config)
+        else:
+            tokenizer = provider.local_model().tokenizer
+        allowed = set(allowed_file_ids) if allowed_file_ids is not None else None
+        authorized_files = {fid: {'sha256': record['sha256']} for fid, record in cat['files'].items()
+                            if record.get('available') and record.get('state') == 'ready'
+                            and (allowed is None or fid in allowed)}
+        works = set()
+        files = set()
+        counter = 0
         with lib._db() as source:
             for p in source.execute('SELECT p.*, w.title FROM passages p JOIN works w ON w.id=p.work_id WHERE p.boilerplate=0 ORDER BY p.work_id,p.ordinal'):
                 data = json.loads(p['data'])
@@ -405,6 +406,7 @@ def _snapshot(lib, config, cache, *, allowed_file_ids=None, source_bindings=None
     _validate_files(lib, metadata)
     os.replace(temporary, target)
     atomic_json(meta_path, metadata)
+    finish_operation(_root(lib), 'snapshot', snapshot_id)
     return metadata, target
 
 
@@ -575,7 +577,7 @@ def estimate_index(lib, *, engine=None):
             imported = _import_pilot(lib, cache, config)
             encoding = tiktoken.get_encoding('cl100k_base')
             count = tokens = 0
-            with open_sqlite(windows_path) as windows:
+            with open_sqlite(windows_path.as_uri() + '?mode=ro', uri=True) as windows:
                 for key, text in windows.execute('SELECT text_hash,text FROM windows GROUP BY text_hash'):
                     if cache.execute('SELECT 1 FROM vectors WHERE text_hash=?', (key,)).fetchone():
                         continue
@@ -636,7 +638,7 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
             _progress(lib, engine, 'preparing')
             snapshot, windows_path = _snapshot(lib, config, cache, allowed_file_ids=allowed_file_ids, source_bindings=source_bindings)
             imported = _import_pilot(lib, cache, config)
-            with open_sqlite(windows_path) as windows:
+            with open_sqlite(windows_path.as_uri() + '?mode=ro', uri=True) as windows:
                 pending = []
                 for key, text, file_ids in windows.execute('SELECT text_hash,text,file_ids FROM windows GROUP BY text_hash ORDER BY ordinal'):
                     if _get_vector(cache, key, config['dimensions']) is not None:
@@ -669,11 +671,11 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
                     index.add(np.asarray(keys, dtype=np.uint64), np.vstack(vector_batch), threads=6)
                 generation = uid('sem')
                 folder = root / 'generations' / generation
+                begin_operation(root, 'generation', generation, snapshot_id=snapshot['snapshot_id'])
                 folder.mkdir(parents=True, exist_ok=True)
                 index.save(str(folder / 'index.usearch'))
-                # Immutable map copied through SQLite backup, not by opening books.
-                with open_sqlite(folder / 'windows.sqlite3') as destination:
-                    windows.backup(destination)
+                # The immutable snapshot already contains the query map. Retain
+                # it by snapshot identity instead of copying all its window text.
             after = Budget(lib.state).report()
             info = {**snapshot, **config, 'generation': generation, 'engine': engine,
                     'scope': 'whole library' if allowed_file_ids is None else 'authorized intake sources', 'coverage_books': len(snapshot['work_ids']),
@@ -683,7 +685,7 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
                     'embedded_windows': embedded, 'cached_windows': cached,
                     'pilot_vectors_imported': imported, 'embedded_batches': batches,
                     'index_file': str((folder / 'index.usearch').relative_to(root)),
-                    'windows_file': str((folder / 'windows.sqlite3').relative_to(root)),
+                    'windows_file': str(windows_path.relative_to(root)),
                     'previous_generation': current.get('generation'),
                     'api_usage': {'requests': after['requests'] - before['requests'],
                                   'actual_tokens': after['actual_tokens'] - before['actual_tokens'],
@@ -695,6 +697,7 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
                 _validate_files(lib, snapshot)
                 atomic_json(folder / 'generation.json', info)
                 atomic_json(root / 'current.json', info)
+                finish_operation(root, 'generation', generation)
                 cfg = read_json(lib.state / 'config.json', {})
                 if engine == 'openai' and info['initial_build_completed']:
                     cfg['semantic']['openai_initial_complete'] = True
@@ -711,6 +714,10 @@ def build_index(lib, *, progress=None, force=False, batch_size=None, should_cont
             # submitted text. Unexpected errors expose only their class.
             safe = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
             _progress(lib, engine, 'pending', completed_windows=embedded + cached, error=safe[:800])
+            # Only journaled, unpublished files are eligible. A failure after
+            # current.json was published still retains that active generation.
+            with writer(lib.state):
+                _retain_generations(lib)
             raise
         finally:
             cache.close()
@@ -796,7 +803,7 @@ def _search(lib, query, *, limit=60):
     limit = max(1, min(int(limit), 200))
     matches = index.search(matrix[0], min(info['windows'], max(100, limit * 5)))
     seen = set(); result = []
-    with open_sqlite(windows_path) as windows:
+    with open_sqlite(windows_path.as_uri() + '?mode=ro', uri=True) as windows:
         for match in matches:
             row = windows.execute('SELECT passage_id,work_id,id,char_start,char_end FROM windows WHERE ordinal=?', (int(match.key),)).fetchone()
             if not row or row[0] in seen:
