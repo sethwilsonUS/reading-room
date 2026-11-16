@@ -94,6 +94,8 @@ Contributor checking has its own [guide](../skills/library-search/references/con
 
 Pause takes effect between bounded stages; an already-sent request cannot be recalled. Resume does not grant new permissions. Budget and provider pauses require explicit resume, including after the calendar month changes. Uncertain interrupted requests retain their cost reservations rather than silently replaying.
 
+Provider requests have a 50-second timeout and share a 110-second active-review allowance across saved continuations. Local checkpoint and budget-ledger waits do not consume that allowance. If those waits leave too little time in the current 110-second foreground window, intake queues a clean continuation before sending another request. Completed responses are reused, unstarted stages incur no charge, and existing authorization and spending limits still apply. Older checkpoints retain their recorded elapsed time conservatively; unknown requests are never converted into clean continuations.
+
 Undo reverses eligible automatic corrections while preserving later user edits. It does not delete the book, undo charges, or erase research history. Some findings need evidence and remain in the guided review rather than being applied automatically.
 
 Changed source files require review of the job's scope. Preserve originals and investigate the change; do not repair an indexing problem by redownloading or directly annotating around the intake workflow.

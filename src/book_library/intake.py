@@ -627,7 +627,7 @@ def _review(lib, intake_id, target_id):
                               revision=context['revision'], coverage=coverage, started_at=now())
             target.update(status='running', generation_id=uid('intake_continuation') if continuing else target['attempt_id'])
             job['active_operation'] = {'kind': 'review', 'target_id': target_id, 'pid': os.getpid()}
-            job['status'] = 'running'
+            job.update(status='running', reason='', reason_code=None)
             _save(lib, job)
             attempt_id = target['attempt_id']
             generation_id = target['generation_id']
@@ -677,8 +677,8 @@ def _review(lib, intake_id, target_id):
             return
         if result.get('failure_reason') == 'paused':
             if job['status'] != 'paused':
-                job.update(status='queued', reason_code='paid_blocked',
-                           reason='Saved review stages are waiting for the paused paid-work issue to be resolved.')
+                job.update(status='queued', reason_code='continuation',
+                           reason='Saved review stages are queued to continue when paid work is available.')
                 _save(lib, job)
             return
     revision = target['revision']

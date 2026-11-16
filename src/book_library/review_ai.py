@@ -693,18 +693,47 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
     budget, reservation, client = Budget(library.state), None, None
     started = time.monotonic()
     elapsed = max(0, float(checkpoint.get('elapsed_seconds', 0)))
-    deadline = started + max(0, REVIEW_DEADLINE - elapsed)
+    bookkeeping_seconds = 0
+    bookkeeping_started = None
+
+    def active_elapsed():
+        current = time.monotonic()
+        pending_wait = current - bookkeeping_started if bookkeeping_started is not None else 0
+        return elapsed + max(0, current - started - bookkeeping_seconds - pending_wait)
+
+    def local_call(operation, *args, **kwargs):
+        nonlocal bookkeeping_seconds, bookkeeping_started
+        bookkeeping_started = time.monotonic()
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            bookkeeping_seconds += max(0, time.monotonic() - bookkeeping_started)
+            bookkeeping_started = None
+
+    def request_window():
+        remaining = min(STAGE_TIMEOUT, REVIEW_DEADLINE - active_elapsed())
+        if remaining <= 0:
+            raise TimeoutError('Review deadline reached.')
+        # Keep the current foreground generation bounded, without charging
+        # local writer/checkpoint waits against the saved provider allowance.
+        # A clean continuation retains completed responses and starts a fresh
+        # foreground window; actual provider timeouts remain uncertain.
+        if REVIEW_DEADLINE - (time.monotonic() - started) < remaining:
+            raise ReviewPaused()
+        return remaining
 
     def save_checkpoint():
-        checkpoint['elapsed_seconds'] = elapsed + max(0, time.monotonic() - started)
+        # Legacy checkpoints included local waits. Keeping their saved value
+        # is conservative; never refund time from an already retained record.
+        checkpoint['elapsed_seconds'] = active_elapsed()
         if on_checkpoint is not None:
-            on_checkpoint(copy.deepcopy(checkpoint))
+            local_call(on_checkpoint, copy.deepcopy(checkpoint))
 
     try:
         # A previous process may have saved its completed response but stopped
         # before releasing unused holds. Finishing known stages is idempotent.
         for previous in checkpoint.get('reservations', []):
-            if budget.finish_review(previous)['uncertain']:
+            if local_call(budget.finish_review, previous)['uncertain']:
                 result['failure_reason'] = 'uncertain'
                 raise ValueError('A prior review reservation has an uncertain stage.')
 
@@ -723,15 +752,13 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
                     raise ValueError('Saved provider response has an unexpected price tier.')
                 sources, _ = _external_sources(response, domains) if domains else ([], 0)
                 return response, sources
-            if should_continue is not None and not should_continue():
+            if should_continue is not None and not local_call(should_continue):
                 raise ReviewPaused()
-            remaining = min(STAGE_TIMEOUT, deadline-time.monotonic())
-            if remaining <= 0:
-                raise TimeoutError('Review deadline reached.')
-            budget.check_review_continuation(checkpoint.get('reservations', []))
+            request_window()
+            local_call(budget.check_review_continuation, checkpoint.get('reservations', []))
             from .public_config import require_budget
             try:
-                require_budget(library.state)
+                local_call(require_budget, library.state)
             except ValueError as exc:
                 result['failure_reason'] = 'budget'
                 raise BudgetExceeded(str(exc)) from None
@@ -747,21 +774,33 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
                 pending = [name for name in possible if name not in checkpoint['responses']]
                 # The initial complete review retains the conservative $0.75
                 # reserve; continuation holds only stages never requested.
-                reservation = budget.reserve_review(stages=pending if checkpoint['responses'] else None)
+                reservation = local_call(budget.reserve_review, stages=pending if checkpoint['responses'] else None)
                 checkpoint['reservations'].append(reservation)
-            if should_continue is not None and not should_continue():
+            if should_continue is not None and not local_call(should_continue):
                 raise ReviewPaused()
             checkpoint['in_flight'] = stage
             checkpoint['request_fingerprints'][stage] = fingerprint
             save_checkpoint()
-            budget.begin_review_stage(reservation, stage)
+            remaining = None
+            def before_start():
+                nonlocal remaining
+                remaining = request_window()
+            try:
+                local_call(budget.begin_review_stage, reservation, stage, before_start=before_start)
+            except (ReviewPaused, TimeoutError):
+                # The locked preflight ran before the ledger's start marker;
+                # this stage was never dispatched and needs no uncertain hold.
+                checkpoint['in_flight'] = None
+                checkpoint['request_fingerprints'].pop(stage, None)
+                save_checkpoint()
+                raise
             response = _plain(await asyncio.wait_for(client.responses.create(**parameters), timeout=remaining))
             if response.get('model') not in (None, MODEL) and not str(response.get('model')).startswith(MODEL+'-'):
                 raise ValueError('The provider returned an unexpected model; its cost reservation is retained.')
             if response.get('service_tier') not in (None, 'default'):
                 raise ValueError('The provider returned an unexpected price tier; its reservation is retained.')
             sources, searches = _external_sources(response, domains) if domains else ([], 0)
-            budget.settle_review_stage(reservation, stage, response.get('usage'), searches=searches)
+            local_call(budget.settle_review_stage, reservation, stage, response.get('usage'), searches=searches)
             checkpoint['responses'][stage] = copy.deepcopy(response)
             checkpoint['in_flight'] = None
             save_checkpoint()
@@ -908,7 +947,7 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
         try:
             reservations = checkpoint.get('reservations', [])
             if reservations:
-                accounting = [budget.finish_review(item) for item in reservations]
+                accounting = [local_call(budget.finish_review, item) for item in reservations]
                 result['cost'] = {'reserved': str(sum((Decimal(item.get('reserved_dollars', str(REVIEW_RESERVE))) for item in reservations), Decimal('0'))),
                     'charged_or_reserved': str(sum((Decimal(item['dollars']) for item in accounting), Decimal('0'))),
                     'uncertain': any(item['uncertain'] for item in accounting), 'reservation_id': reservations[-1]['id'],

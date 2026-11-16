@@ -567,6 +567,65 @@ def test_checkpoint_pause_after_web_never_repeats_search(tmp_path, monkeypatch, 
     assert 'tools' not in second.calls[0]
 
 
+@pytest.mark.parametrize('delay_at', ['settlement', 'checkpoint', 'stage_lock'])
+def test_local_wait_pauses_before_web_and_continues_cached_work(tmp_path, monkeypatch, context, delay_at):
+    from book_library.storage import jsonl
+    clock = [0.0]
+    monkeypatch.setattr(ai, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    local = response(result(unresolved=[{'field': 'bibliography.year', 'reason': 'Not shown.'}]))
+    first = use_client(monkeypatch, [local])
+    create = first.create
+    async def local_response(**kwargs):
+        clock[0] += 8  # Actual provider time still counts against the allowance.
+        return await create(**kwargs)
+    first.create = local_response
+    delayed = False
+    def wait_once():
+        nonlocal delayed
+        if not delayed:
+            clock[0] += 95
+            delayed = True
+    settle = Budget.settle_review_stage
+    def delayed_settle(self, reservation, stage, usage, **kwargs):
+        if delay_at == 'settlement' and stage == 'local':
+            wait_once()
+        return settle(self, reservation, stage, usage, **kwargs)
+    monkeypatch.setattr(Budget, 'settle_review_stage', delayed_settle)
+    begin = Budget.begin_review_stage
+    def delayed_begin(self, reservation, stage, **kwargs):
+        if delay_at == 'stage_lock' and stage == 'web':
+            wait_once()
+        return begin(self, reservation, stage, **kwargs)
+    monkeypatch.setattr(Budget, 'begin_review_stage', delayed_begin)
+    saved = []
+    def checkpoint(value):
+        saved.append(copy.deepcopy(value))
+        if delay_at == 'checkpoint' and 'local' in value['responses']:
+            wait_once()
+
+    paused = ai.suggest(SimpleNamespace(state=tmp_path), context, on_checkpoint=checkpoint)
+    assert paused['failure_reason'] == 'paused' and len(first.calls) == 1
+    assert paused['cost']['uncertain'] is False
+    assert float(paused['cost']['charged_or_reserved']) == pytest.approx(.00015)
+    retained = saved[-1]
+    assert set(retained['responses']) == {'local'} and retained['in_flight'] is None
+    assert retained['elapsed_seconds'] == pytest.approx(8)
+    assert retained['allow_external'] is True
+    events = jsonl(Budget(tmp_path).path)
+    assert [e['stage'] for e in events if e['kind'] == 'review_stage_started'] == ['local']
+    assert Budget(tmp_path).report()['uncertain_reservations'] == 0
+
+    second = use_client(monkeypatch, [web_response(), response(result())])
+    done = ai.suggest(SimpleNamespace(state=tmp_path), context, checkpoint=retained)
+    assert done['status'] == 'complete' and done['failure_reason'] is None
+    assert len(second.calls) == 2 and 'tools' in second.calls[0]
+    assert done['cost']['uncertain'] is False
+    assert float(done['cost']['charged_or_reserved']) == pytest.approx(.01045)
+    events = jsonl(Budget(tmp_path).path)
+    assert [e['stage'] for e in events if e['kind'] == 'review_stage_started'] == ['local', 'web', 'normalize']
+    assert len([e for e in events if e['kind'] == 'reserve']) == 2
+
+
 def test_cached_web_normalization_omits_uncited_pages_without_losing_target_evidence(tmp_path, monkeypatch, context):
     web = web_response()
     consulted = web['output'][0]['action']['sources']

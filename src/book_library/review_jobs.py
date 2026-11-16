@@ -12,7 +12,7 @@ import time
 
 from .storage import atomic_json, now, read_json, writer
 
-LEASE_SECONDS = 180  # Longer than the provider's 110-second whole-review deadline.
+LEASE_SECONDS = 180  # Longer than a review generation's 110-second dispatch window.
 
 
 def _identifier(value):

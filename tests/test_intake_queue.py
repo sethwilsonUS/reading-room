@@ -534,6 +534,53 @@ def test_clean_pause_resumes_web_stages_once_without_repeating_local_review(tmp_
     assert resumed['targets'][0]['status'] == 'needs_evidence'
 
 
+def test_bookkeeping_delay_queues_authorized_cached_continuation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from book_library import review_ai as ai
+    from book_library.budget import Budget
+    from book_library.storage import jsonl
+    from test_review_ai import use_client, response, result as model_result, web_response
+    lib, _, job = fixture(tmp_path)
+    authorization = copy.deepcopy(job['authorization'])
+    clock = [0.0]
+    monkeypatch.setattr(ai, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    client = use_client(monkeypatch, [
+        response(model_result(unresolved=[{'field': 'bibliography.publisher', 'reason': 'Not shown in the copy.'}])),
+        web_response('https://www.worldcat.org/title/fixture', 'The source is inconclusive.'),
+        response(model_result()),
+    ])
+    settle = Budget.settle_review_stage
+    delayed = False
+    def delayed_settle(self, reservation, stage, usage, **kwargs):
+        nonlocal delayed
+        if stage == 'local' and not delayed:
+            clock[0] += 103
+            delayed = True
+        return settle(self, reservation, stage, usage, **kwargs)
+    monkeypatch.setattr(Budget, 'settle_review_stage', delayed_settle)
+    for _ in range(3):
+        assert intake.run_next(lib)
+    queued = intake.intake_status(lib, job['id'])
+    assert queued['status'] == 'queued' and queued['reason_code'] == 'continuation'
+    assert queued['targets'][0]['continuation_pending'] and len(client.calls) == 1
+    attempt = queued['targets'][0]['attempt_id']
+    checkpoint = intake._checkpoint(lib, queued, queued['targets'][0])
+    assert checkpoint['in_flight'] is None and set(checkpoint['responses']) == {'local'}
+    assert Budget(lib.state).report()['uncertain_reservations'] == 0
+
+    # The original intake authorization permits this unstarted work; no resume
+    # or fresh authorization is needed because no provider request failed.
+    assert intake.run_next(lib)
+    done = intake.intake_status(lib, job['id'])
+    assert done['status'] != 'paused' and len(client.calls) == 3
+    assert done['reason_code'] is None and done['reason'] == ''
+    assert done['authorization'] == authorization
+    assert done['targets'][0]['attempt_id'] == attempt
+    assert done['targets'][0]['attempts'] == 1
+    assert not done['targets'][0]['continuation_pending']
+    assert [e['stage'] for e in jsonl(Budget(lib.state).path) if e['kind'] == 'review_stage_started'] == ['local', 'web', 'normalize']
+
+
 def test_semantic_pause_is_monthly_and_requires_only_one_resume(tmp_path, monkeypatch):
     from book_library.semantic_library import SemanticPaused
     fake_provider(monkeypatch)

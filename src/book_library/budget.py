@@ -102,7 +102,7 @@ class Budget:
                 'purpose': 'correction_review', 'stage_holds': {key: str(value) for key, value in holds.items()}, 'created_at': now()})
         return {'id': rid, 'scope': 'monthly', 'period': period, 'reserved_dollars': str(reserve)}
 
-    def begin_review_stage(self, reservation, stage):
+    def begin_review_stage(self, reservation, stage, *, before_start=None):
         if stage not in REVIEW_STAGE_HOLDS:
             raise ValueError('Unknown review stage.')
         with writer(self.state):
@@ -117,6 +117,10 @@ class Budget:
                 raise ValueError('This review stage has already started or finished; it cannot be retried.')
             if any(event['kind'] == 'review_stage_settled' and Decimal(event['dollars']) > REVIEW_STAGE_HOLDS[event['stage']] for event in prior):
                 raise BudgetExceeded('A review exceeded its conservative reservation; further paid stages are stopped.')
+            if before_start is not None:
+                # Recheck after acquiring the writer: an index publication can
+                # hold it longer than the caller's foreground request window.
+                before_start()
             append_jsonl(self.path, {'kind': 'review_stage_started', 'request_id': reservation['id'], 'stage': stage, 'created_at': now()})
 
     def check_review_continuation(self, reservations):
