@@ -162,3 +162,22 @@ def test_conflicting_explicit_index_parents_do_not_choose_an_ancestry(tmp_path, 
     source, _ = prepare(path, tmp_path / 'state')
     assert next(b for b in source if b['locator'].get('member') == 'EPUB/opening.xhtml')['kind'] == 'paragraph'
     assert next(b for b in source if b['locator'].get('member') == 'EPUB/deep.xhtml')['kind'] == 'paragraph'
+
+
+def test_unresolved_boilerplate_target_does_not_abort_linked_index_recovery(tmp_path):
+    path = epub(tmp_path / 'source.epub', {
+        'index.xhtml': '<p id="notes">Study Notes</p><p><a href="alpha.xhtml#alpha">Alpha Study Notes</a></p>',
+        'alpha.xhtml': '<p id="alpha">Alpha Study Notes</p><p>Substantive discussion.</p>',
+        'wrapper.xhtml': '<p id="wrapper">Removed wrapper text.</p>',
+    }, '<a href="index.xhtml#notes">Study Notes</a></li><li><a href="wrapper.xhtml#wrapper">Unavailable Label</a>')
+    extraction = extract_file(path)
+    wrapper = next(b for b in extraction['blocks'] if b['locator'].get('member') == 'EPUB/wrapper.xhtml')
+    wrapper['is_boilerplate'] = True
+    file = {'id': 'file_test', 'sha256': 'synthetic', 'path': str(path), 'available': True, 'state': 'ready'}
+    report = prepare_work(SimpleNamespace(state=tmp_path / 'state'), {'id': 'work_test', 'title': 'Synthetic Notes'},
+                          [file], {file['id']: extraction})
+    alpha = next(b for b in extraction['blocks'] if b['locator'].get('member') == 'EPUB/alpha.xhtml')
+    assert alpha['heading_path'] == ['Study Notes', 'Alpha Study Notes']
+    assert wrapper['is_boilerplate'] is True
+    assert any(i['code'] == 'unresolved_navigation_target' and i['navigation_label'] == 'Unavailable Label'
+               for i in report['issues'])

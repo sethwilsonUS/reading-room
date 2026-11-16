@@ -296,12 +296,14 @@ def _linked_navigation_recovery(by_member, anchors, files, navigation, report):
     # through another index may reveal a competing parent for an earlier target.
     indexes, proposals = {}, []
     for member_key, peers in by_member.items():
+        if len(peers) < 2:
+            continue
         file, heading = peers[0]
-        if len(peers) < 2 or any(b.get('kind') not in {'paragraph', 'heading'}
-                                or b.get('locator', {}).get('note_id')
-                                or not b.get('links')
-                                or _norm(b['text']) != _norm(' '.join(link.get('label', '') for link in b['links']))
-                                for _, b in peers[1:]):
+        if any(b.get('kind') not in {'paragraph', 'heading'}
+               or b.get('locator', {}).get('note_id')
+               or not b.get('links')
+               or _norm(b['text']) != _norm(' '.join(link.get('label', '') for link in b['links']))
+               for _, b in peers[1:]):
             continue
         indexes[_key(file, heading)] = (file, heading)
         for _, block in peers[1:]:
