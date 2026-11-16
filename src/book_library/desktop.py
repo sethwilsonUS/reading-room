@@ -107,9 +107,12 @@ def run_app(lib, port: int | None = None, *, webview: Any = None,
         mode = 'reused'
     else:
         server = server_factory(lib, host, port)
-        server.start()
         mode = 'owned'
     try:
+        if server is not None:
+            server.start()
+        # Citation exports use download links, which pywebview disables by default.
+        webview.settings['ALLOW_DOWNLOADS'] = True
         webview.create_window(url=base_url, **WINDOW_OPTIONS)
         # A persistent (non-private) web view keeps the appearance preference
         # and tab-session state that the interface stores in the browser.

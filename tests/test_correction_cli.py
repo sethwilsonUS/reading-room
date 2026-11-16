@@ -96,6 +96,104 @@ def test_apply_saves_only_selected_changes_as_provisional_user_curation(review_b
     assert len(lib._curation()) == count  # a repeated request ID never saves twice
 
 
+@pytest.mark.parametrize('selection', [('--field', 'bibliography.title'), ('--all',)])
+def test_identical_apply_retry_returns_receipt_after_draft_is_empty(review_book, selection):
+    lib, _, hit, _ = review_book
+    target = hit['section_id']
+    saved = correction(lib, 'set', target, '--field', 'bibliography.title', '--value', 'A new introduction',
+                       '--evidence', 'Synthetic source heading inspected.')['review']
+    arguments = (*selection, '--request-id', 'identical-retry', '--revision', saved['revision'],
+                 '--version', str(saved['version']))
+    first = correction(lib, 'apply', target, *arguments)
+    assert first['receipt']['saved'] and first['review']['draft_changes'] == {}
+    before = list(lib._curation())
+
+    repeated = correction(lib, 'apply', target, *arguments)
+
+    assert repeated['receipt'] == {**first['receipt'], 'duplicate': True}
+    assert repeated['review']['version'] == first['review']['version']
+    assert lib._curation() == before
+
+
+@pytest.mark.parametrize('selection', [('--field', 'bibliography.title'), ('--all',)])
+def test_apply_retry_recovers_committed_correction_without_receipt(review_book, monkeypatch, selection):
+    from book_library import review
+    lib, _, hit, _ = review_book
+    target = hit['section_id']
+    correction(lib, 'set', target, '--field', 'bibliography.title', '--value', 'A durable introduction',
+               '--evidence', 'Synthetic source heading inspected.')
+    arguments = (*selection, '--request-id', 'interrupted-retry')
+    actual_atomic_json = review.atomic_json
+
+    def interrupt_draft_write(*args):
+        raise OSError('Interrupted after curation commit.')
+
+    monkeypatch.setattr(review, 'atomic_json', interrupt_draft_write)
+    with pytest.raises(OSError, match='Interrupted'):
+        correction(lib, 'apply', target, *arguments)
+    monkeypatch.setattr(review, 'atomic_json', actual_atomic_json)
+    before = list(lib._curation())
+    assert before[-1]['review_request_id'] == 'interrupted-retry'
+    # Another session may clear the remaining draft before the caller retries.
+    correction(lib, 'discard', target)
+    assert lib.review_draft(target)['applications'] == []
+
+    recovered = correction(lib, 'apply', target, *arguments)
+
+    assert recovered['receipt']['duplicate'] and recovered['receipt']['saved']
+    assert recovered['receipt']['fields'] == ['bibliography.title']
+    assert recovered['review']['draft_changes'] == {}
+    assert lib._curation() == before
+
+
+@pytest.mark.parametrize('selection', [('--field', 'bibliography.title'), ('--all',)])
+def test_new_apply_request_rejects_an_empty_draft_without_mutation(review_book, selection):
+    lib, _, hit, _ = review_book
+    target = hit['section_id']
+    correction(lib, 'discard', target)
+    before = lib.review_draft(target)
+    curation = list(lib._curation())
+
+    with pytest.raises(ValueError, match='(?i)draft|field'):
+        correction(lib, 'apply', target, *selection, '--request-id', 'new-empty-request')
+
+    assert lib.review_draft(target) == before
+    assert lib._curation() == curation
+
+
+def test_new_apply_request_rejects_missing_fields_without_partial_save(review_book):
+    lib, _, hit, _ = review_book
+    target = hit['section_id']
+    correction(lib, 'set', target, '--field', 'bibliography.title', '--value', 'A new introduction',
+               '--evidence', 'Synthetic source heading inspected.')
+    before = lib.review_draft(target)
+    curation = list(lib._curation())
+
+    with pytest.raises(ValueError, match='(?i)draft|field'):
+        correction(lib, 'apply', target, '--field', 'bibliography.title', '--field', 'bibliography.authors',
+                   '--request-id', 'new-missing-request')
+
+    assert lib.review_draft(target) == before
+    assert lib._curation() == curation
+
+
+def test_new_apply_request_still_refuses_stale_version(review_book):
+    lib, _, hit, _ = review_book
+    target = hit['section_id']
+    saved = correction(lib, 'set', target, '--field', 'bibliography.title', '--value', 'A new introduction',
+                       '--evidence', 'Synthetic source heading inspected.')['review']
+    correction(lib, 'set', target, '--field', 'profile.themes', '--value', 'lanterns')
+    before = lib.review_draft(target)
+    curation = list(lib._curation())
+
+    with pytest.raises(ReviewConflict):
+        correction(lib, 'apply', target, '--field', 'bibliography.title', '--request-id', 'new-stale-request',
+                   '--version', str(saved['version']))
+
+    assert lib.review_draft(target) == before
+    assert lib._curation() == curation
+
+
 def test_decide_and_recommendation_follow_the_review_rules(review_book):
     lib, _, hit, _ = review_book
     target = hit['section_id']

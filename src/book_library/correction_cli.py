@@ -138,9 +138,8 @@ def run(lib, args):
             if args.all == bool(args.field):
                 raise ValueError('Choose the draft changes to save with --field (repeatable) or --all.')
             selected = list(changes) if args.all else args.field
-            missing = [key for key in selected if key not in changes]
-            if missing or not selected:
-                raise ValueError('No pending draft change for: ' + (', '.join(missing) or 'any field') + '.')
+            # The service checks saved receipts before validating the current
+            # draft: a successful retry may have no pending fields left.
             result = lib.apply_review(target, selected, revision=revision, expected_version=version,
                                       request_id=args.request_id or 'cli-' + uuid.uuid4().hex, changes=changes)
         case 'discard':

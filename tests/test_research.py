@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from book_library.research import search_with_context
+from book_library import public_config, semantic_library
 from book_library.web import create_app
 from test_service import docx, seed
 
@@ -111,3 +112,58 @@ def test_plain_search_output_is_unchanged_without_the_flag(library):
     plain = cli(library, 'search', 'lantern river', '--json')
     assert 'context_budget' not in plain
     assert all('context' not in h and 'citation' not in h for h in plain['direct'])
+
+
+@pytest.mark.parametrize('max_chars,closing', [(6000, 'Quiet closing prose. ' * 400), (500, '')])
+def test_late_exact_match_stays_in_context_with_working_continuations(tmp_path, max_chars, closing):
+    root = tmp_path / 'books'
+    text = 'Ordinary introductory prose. ' * 350 + 'A goldfinch rests beneath the oak. ' + closing
+    path = docx(root / 'Long' / 'source.docx', [('Heading1', 'Synthetic chapter'), text])
+    lib = seed(root, [{'title': 'Synthetic long chapter', 'paths': [path]}])
+    plain = lib.search('goldfinch', engine='exact')['direct'][0]
+    hit = search_with_context(lib, 'goldfinch', engine='exact', max_chars=max_chars, total_chars=max_chars)['direct'][0]
+    assert {key: hit[key] for key in SHARED_FIELDS} == {key: plain[key] for key in SHARED_FIELDS}
+    assert hit['excerpt_start'] > 6000
+    context = hit['context']
+    assert 'goldfinch rests beneath the oak' in context['passage']
+    assert context['chars'] <= max_chars and context['truncated']
+    assert context['offset'] > 0
+    earlier = lib.read(hit['id'], context=0, offset=context['previous_offset'], max_chars=max_chars)
+    assert earlier['next_offset'] == context['offset']
+    assert 'Ordinary introductory prose' in earlier['passage']['text']
+    if closing:
+        later = lib.read(hit['id'], context=0, offset=context['next_offset'], max_chars=max_chars)
+        assert later['passage']['text'] and 'Quiet closing prose' in later['passage']['text']
+    else:
+        assert context['next_offset'] is None
+
+
+@pytest.mark.parametrize('max_chars', [6000, 500])
+def test_semantic_context_uses_the_retrieved_window_without_changing_search_results(tmp_path, monkeypatch, max_chars):
+    root = tmp_path / 'books'
+    text = 'Ordinary introductory prose. ' * 1200 + 'A goldfinch rests beneath the oak. ' + 'Quiet closing prose. ' * 400
+    path = docx(root / 'Long' / 'source.docx', [('Heading1', 'Synthetic chapter'), text])
+    lib = seed(root, [{'title': 'Synthetic long chapter', 'paths': [path]}])
+    passage_id = lib.search('goldfinch', engine='exact')['direct'][0]['id']
+    source = lib.read(passage_id, context=0, max_chars=45000)['passage']['text']
+    start = source.index('A goldfinch')
+    public_config.accept_budget(lib, initial_usd='10', monthly_usd='10', timezone='UTC')
+    semantic_library.configure_engine(lib, 'openai', approval_evidence='Synthetic fixture uses only a fake semantic provider.')
+    calls = []
+
+    def fake_search(library, query, limit):
+        calls.append(query)
+        return [{'passage_id': passage_id, 'window_id': 'synthetic-window', 'char_start': start, 'char_end': start + 300}]
+
+    monkeypatch.setattr(semantic_library, 'search', fake_search)
+    plain = lib.search('avian shelter')['connections'][0]
+    result = search_with_context(lib, 'avian shelter', max_chars=max_chars, total_chars=max_chars)
+    hit = result['connections'][0]
+    assert calls == ['avian shelter', 'avian shelter']
+    assert {key: hit[key] for key in SHARED_FIELDS} == {key: plain[key] for key in SHARED_FIELDS}
+    assert hit['read_offset'] > 30000
+    assert 'goldfinch rests beneath the oak' in hit['context']['passage']
+    assert hit['context']['offset'] >= hit['read_offset']
+    assert hit['context']['chars'] <= max_chars
+    assert hit['context']['previous_offset'] is not None and hit['context']['next_offset'] is not None
+    assert result['context_budget']['used_chars'] == hit['context']['chars']
