@@ -15,7 +15,7 @@ import re
 from .source_structure import apply_reviewed_structure
 from .storage import atomic_json, stable
 
-ANALYZER_VERSION = '6'
+ANALYZER_VERSION = '8'
 STRUCTURE_SCHEMA = '''
 CREATE TABLE IF NOT EXISTS outline_nodes(
  id TEXT PRIMARY KEY, work_id TEXT, parent_id TEXT, ordinal INTEGER,
@@ -263,6 +263,114 @@ def _navigation_recovery(entries, report, files):
             for fragment in fragments:
                 fragment['structure_heading_fragment'] = _key(f, b)
         b.setdefault('level', level)
+    _linked_navigation_recovery(by_member, anchors, files, navigation, report)
+
+
+def _linked_navigation_recovery(by_member, anchors, files, navigation, report):
+    """Follow declared navigation into title-and-links-only source indexes.
+
+    Some books declare only an index in the EPUB TOC, leaving its explicitly
+    linked sections out of the packaged navigation. Require the whole member
+    after its confirmed opening heading to contain only link labels, then the
+    same unique anchored title agreement as ordinary contents recovery. A
+    numeric link into chapter prose does not establish a source heading.
+    """
+    entries = [pair for peers in by_member.values() for pair in peers]
+    roots = [(f, b) for peers in by_member.values() for f, b in peers[:1]
+             if b.get('heading_evidence', {}).get('origin') == 'epub_navigation_hierarchy']
+    if not roots:
+        return
+    known_targets = {(f['id'], t.get('member'), t.get('element_id')) for f, t, *_ in navigation}
+    headings_by_file = defaultdict(list)
+    for f, b in entries:
+        if _heading(b):
+            headings_by_file[f['id']].append((b['ordinal'], b.get('structure_toc_level') or b.get('level') or 1))
+    for headings in headings_by_file.values():
+        headings.sort()
+
+    def boundary(file, heading, level):
+        return next((ordinal for ordinal, depth in headings_by_file[file['id']]
+                     if ordinal > heading['ordinal'] and depth <= level), None)
+
+    # Collect the source-index graph before promoting anything. An index reached
+    # through another index may reveal a competing parent for an earlier target.
+    indexes, proposals = {}, []
+    for member_key, peers in by_member.items():
+        file, heading = peers[0]
+        if len(peers) < 2 or any(b.get('kind') not in {'paragraph', 'heading'}
+                                or b.get('locator', {}).get('note_id')
+                                or not b.get('links')
+                                or _norm(b['text']) != _norm(' '.join(link.get('label', '') for link in b['links']))
+                                for _, b in peers[1:]):
+            continue
+        indexes[_key(file, heading)] = (file, heading)
+        for _, block in peers[1:]:
+            for link in block['links']:
+                target = link.get('target') or {}
+                label = link.get('label', '').strip()
+                key = (file['id'], target.get('member'), target.get('element_id'))
+                if (not target.get('member') or not target.get('element_id') or not label
+                        or len(label) > 240 or label.isdecimal() or key in known_targets
+                        or (file['id'], target['member']) == member_key):
+                    continue
+                proposals.append((file, target, label, 1, member_key[1], heading, block))
+    if not proposals:
+        return
+    fallback = _epub_anchor_targets(entries, files, [p[:5] for p in proposals])
+    edges = defaultdict(dict)
+    for file, target, label, _, member, heading, link_block in proposals:
+        key = (file['id'], target['member'], target['element_id'])
+        candidates = anchors.get(key, [])
+        if len(candidates) != 1:
+            candidates = fallback.get(key, candidates)
+        if len(candidates) != 1:
+            continue
+        f, b = candidates[0]
+        if (not _readable(b) or b.get('kind') not in {'paragraph', 'heading'}
+                or b.get('locator', {}).get('note_id') or _norm(b['text']) != _norm(label)
+                or b.get('structure_toc_level') is not None or b['ordinal'] <= heading['ordinal']):
+            continue
+        edges[_key(file, heading)][_key(f, b)] = (f, b, label, member, link_block)
+
+    pending = [(_key(f, b), boundary(f, b, b['structure_toc_level'])) for f, b in roots]
+    seen, parents = set(), defaultdict(set)
+    while pending:
+        parent, end = pending.pop()
+        if (parent, end) in seen:
+            continue
+        seen.add((parent, end))
+        for child, (_, b, *_) in edges[parent].items():
+            if end is not None and b['ordinal'] >= end:
+                continue
+            parents[child].add(parent)
+            if child in indexes:
+                pending.append((child, end))
+
+    pending = [(f, b, b['structure_toc_level'], boundary(f, b, b['structure_toc_level'])) for f, b in roots]
+    while pending:
+        file, heading, parent_level, end = pending.pop()
+        children = sorted((edge for child, edge in edges[_key(file, heading)].items()
+                           if len(parents[child]) == 1 and (end is None or edge[1]['ordinal'] < end)),
+                          key=lambda edge: edge[1]['ordinal'])
+        for i, (f, b, label, member, link_block) in enumerate(children):
+            if b.get('structure_toc_level') is not None:
+                continue
+            level = parent_level + 1
+            if b['kind'] != 'heading':
+                report['recovered_headings'] += 1
+            b.update(kind='heading', structure_toc_level=level,
+                     heading_evidence={'origin': 'linked_navigation_index', 'status': 'confirmed',
+                                       'navigation_member': member, 'navigation_label': label,
+                                       'navigation_level': level, 'contents': _evidence(file, link_block),
+                                       'source': _evidence(f, b)})
+            b.setdefault('level', level)
+            heading['heading_evidence']['linked_index'] = True
+            limits = [end, boundary(f, b, level)]
+            if i + 1 < len(children):
+                limits.append(children[i + 1][1]['ordinal'])
+            child_end = min((limit for limit in limits if limit is not None), default=None)
+            if _key(f, b) in indexes:
+                pending.append((f, b, level, child_end))
 
 
 def _epub_anchor_targets(entries, files, navigation):
@@ -500,9 +608,9 @@ def _normalize(files, extractions, work, report):
                 key = _key(file, block)
                 title = block.get('structure_title') or block['text'].strip()
                 level = max(1, int(block.get('structure_toc_level') or block.get('level') or 1))
-                role = 'section'
                 evidence = block.get('heading_evidence') or {'origin': 'native_heading', 'status': 'confirmed',
                                                             'source': _evidence(file, block)}
+                role = 'group' if evidence.get('linked_index') else 'section'
                 parent = next((item for item in reversed(stack) if item[0] < level), None)
                 reference = _reading(title) if main else None
                 perspective = PERSPECTIVES.get(_norm(title)) if main else None
@@ -540,9 +648,9 @@ def _normalize(files, extractions, work, report):
                         occasion = (1, key, title); reading = None; stack = []
                 if _norm(title) in _FRONT:
                     occasion = reading = None
-                if re.match(r'^(?:part|book)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five)\b', title, re.I):
+                if role != 'group' and re.match(r'^(?:part|book)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five)\b', title, re.I):
                     role = 'group'
-                elif re.match(r'^chapter\s+(?:\d+|[ivxlcdm]+|one|two|three)\b', title, re.I):
+                elif role != 'group' and re.match(r'^chapter\s+(?:\d+|[ivxlcdm]+|one|two|three)\b', title, re.I):
                     role = 'chapter'
                 stack = [s for s in stack if s[0] < level]
                 # Missing ancestors are represented honestly: native depths remain
