@@ -567,6 +567,74 @@ def test_checkpoint_pause_after_web_never_repeats_search(tmp_path, monkeypatch, 
     assert 'tools' not in second.calls[0]
 
 
+def test_cached_web_normalization_omits_uncited_pages_without_losing_target_evidence(tmp_path, monkeypatch, context):
+    web = web_response()
+    consulted = web['output'][0]['action']['sources']
+    consulted.extend({'url': f'https://www.wjkbooks.com/consulted/{i}',
+                      'title': 'An uncited catalog result with verbose metadata. ' * 300}
+                     for i in range(19))
+    sources, _ = ai._external_sources(web, ai.trusted_domains(context))
+    local = response(result(unresolved=[{'field': 'bibliography.year', 'reason': 'Not shown.'}]))
+    first = use_client(monkeypatch, [local, web])
+    saved = []
+    paused = ai.suggest(SimpleNamespace(state=tmp_path), context, should_continue=lambda: len(first.calls) < 2,
+                        on_checkpoint=lambda value: saved.append(value))
+    checkpoint = copy.deepcopy(saved[-1])
+    assert paused['failure_reason'] == 'paused'
+    assert set(checkpoint['responses']) == {'local', 'web'}
+    assert checkpoint['responses']['web'] == web
+
+    # Resume a retained provider response, with no new local review or search.
+    second = use_client(monkeypatch, [response(result([external_proposal(sources[0])]))])
+    done = ai.suggest(SimpleNamespace(state=tmp_path), context, checkpoint=checkpoint)
+    assert done['status'] == 'complete' and done['failure_reason'] is None
+    assert len(second.calls) == 1 and 'tools' not in second.calls[0]
+    payload = json.loads(second.calls[0]['input'])
+    assert payload['external_sources'] == [sources[0]]
+    assert payload['target_evidence'][0]['text'] == context['evidence'][0]['text']
+    assert payload['target_coverage_complete'] is True
+    assert ai._token_count(second.calls[0]) <= ai.NORMALIZE_INPUT_LIMIT
+    assert done['suggestions'][0]['field'] == 'bibliography.year'
+    assert done['external_report']['sources'] == sources
+    assert checkpoint == saved[-1]
+    assert float(done['cost']['charged_or_reserved']) == pytest.approx(.01045)
+    from book_library.storage import jsonl
+    reserves = [event for event in jsonl(Budget(tmp_path).path) if event['kind'] == 'reserve']
+    assert len(reserves) == 2 and set(reserves[1]['stage_holds']) == {'normalize'}
+
+
+def test_normalization_bounds_source_titles_and_validates_only_supplied_sources(tmp_path, monkeypatch, context):
+    web = web_response()
+    title = 'Verbose publisher catalog title. ' * 2000
+    web['output'][0]['action']['sources'][0]['title'] = title
+    web['output'][0]['action']['sources'].append({'url': 'https://www.wjkbooks.com/uncited', 'title': 'Only consulted'})
+    sources, _ = ai._external_sources(web, ai.trusted_domains(context))
+    unsupported = external_finding(sources[1])
+    unsupported['evidence'][0]['relationship'] = 'possible_lead'
+    unsupported['reported_facts'] = []
+    local = response(result(unresolved=[{'field': 'bibliography.year', 'reason': 'Not shown.'}]))
+    client = use_client(monkeypatch, [local, web, response(result([external_proposal(sources[0])], [unsupported]))])
+    done = ai.suggest(SimpleNamespace(state=tmp_path), context)
+    assert done['status'] == 'complete' and len(client.calls) == 3
+    payload = json.loads(client.calls[-1]['input'])
+    assert payload['external_sources'] == [{**sources[0], 'title': title[:1000]}]
+    assert payload['target_coverage_complete'] is True
+    assert ai._token_count(client.calls[-1]) <= ai.NORMALIZE_INPUT_LIMIT
+    assert done['external_report']['sources'][0]['title'] == title
+    assert done['suggestions'][0]['evidence'][0]['summary']
+    assert all(not item['evidence'] for item in done['unresolved'])
+
+
+def test_oversized_report_still_stops_before_normalization_request(tmp_path, monkeypatch, context):
+    local = response(result(unresolved=[{'field': 'bibliography.year', 'reason': 'Not shown.'}]))
+    web = web_response(text='A report exceeding its requested word allowance. ' * 10_000)
+    client = use_client(monkeypatch, [local, web])
+    done = ai.suggest(SimpleNamespace(state=tmp_path), context)
+    assert len(client.calls) == 2 and done['status'] == 'partial'
+    assert done['failure_reason'] == 'provider' and done['cost']['uncertain'] is False
+    assert float(done['cost']['charged_or_reserved']) == pytest.approx(.01030)
+
+
 @pytest.mark.parametrize('change', ['revision', 'request', 'in_flight', 'elapsed'])
 def test_checkpoint_rejects_changed_or_uncertain_context_without_paid_restart(tmp_path, monkeypatch, context, change):
     first = use_client(monkeypatch, [response(result(unresolved=[{'field': 'bibliography.year', 'reason': 'Not shown.'}]))])

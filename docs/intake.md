@@ -98,6 +98,8 @@ Undo reverses eligible automatic corrections while preserving later user edits. 
 
 Changed source files require review of the job's scope. Preserve originals and investigate the change; do not repair an indexing problem by redownloading or directly annotating around the intake workflow.
 
+For an indexing pause, `intake status INTAKE_ID --json` includes `indexing_error` with the failed stage, exception type, and time. `exact_sync` includes extraction, index construction, and publication; it does not establish that the source file is damaged. `review_targets` means the text-sync step finished before preparing review targets failed. Diagnostics omit exception messages and source text, and clear after indexing succeeds.
+
 ## Intake versus sync
 
 `sync --exact` discovers and indexes local text without paid work. Ordinary `sync` also updates the configured semantic index when authorized. Neither command creates permission for automatic metadata review. Intake adds acquisition context, a scoped job, and an explicit account of processing progress.

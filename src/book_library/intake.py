@@ -453,17 +453,25 @@ def _index(lib, intake_id):
             return
         job.update(stage='indexing', status='running', active_operation={'kind': 'indexing', 'pid': os.getpid()})
         _save(lib, job)
+    failure_stage = 'exact_sync'
     try:
         lib.sync(job['path'], semantic=False)
+        failure_stage = 'review_targets'
         with writer(lib.state):
             job = _load(lib, intake_id)
             _targets(lib, job)
+            job.pop('indexing_error', None)
             job.update(stage='semantic', active_operation=None)
             _save(lib, job)
-    except Exception:
+    except Exception as exc:
         with writer(lib.state):
             job = _load(lib, intake_id)
-            _pause(job, 'extraction', 'Text indexing did not finish. Verified files are retained; resume to retry indexing without downloading again.')
+            # Sync also builds and publishes the index; a failure here does not
+            # establish an extraction defect. Keep a bounded diagnostic without
+            # exception messages, tracebacks, book text, or credential values.
+            job['indexing_error'] = {'stage': failure_stage, 'error_type': type(exc).__name__[:120],
+                                     'occurred_at': now()}
+            _pause(job, 'indexing', 'Text indexing did not finish. Verified files are retained; resume to retry indexing without downloading again.')
             job.update(stage='registered', active_operation=None)
             _save(lib, job)
 

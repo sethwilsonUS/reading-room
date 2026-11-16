@@ -95,6 +95,46 @@ def test_sync_alone_never_creates_review_authorization(tmp_path, monkeypatch):
     assert not calls
 
 
+@pytest.mark.parametrize('operation,stage,error_type', [
+    ('sync', 'exact_sync', RuntimeError),
+    ('targets', 'review_targets', ValueError),
+])
+def test_index_failure_keeps_private_diagnostic_and_requires_resume(tmp_path, monkeypatch, operation, stage, error_type):
+    calls = fake_provider(monkeypatch)
+    lib, source, job = fixture(tmp_path)
+    source_bytes = source.read_bytes()
+    owner, attribute = (lib, 'sync') if operation == 'sync' else (intake, '_targets')
+    original = getattr(owner, attribute)
+
+    def fail(*args, **kwargs):
+        raise error_type('PRIVATE_BOOK_TEXT_AND_CREDENTIAL_SENTINEL')
+
+    monkeypatch.setattr(owner, attribute, fail)
+    assert intake.run_next(lib)
+    paused = intake.intake_status(lib, job['id'])
+    assert paused['status'] == 'paused' and paused['stage'] == 'registered'
+    assert paused['reason_code'] == 'indexing'
+    assert paused['indexing_error']['stage'] == stage
+    assert paused['indexing_error']['error_type'] == error_type.__name__
+    assert paused['indexing_error']['occurred_at']
+    assert set(paused['indexing_error']) == {'stage', 'error_type', 'occurred_at'}
+    assert 'PRIVATE_BOOK_TEXT_AND_CREDENTIAL_SENTINEL' not in intake._path(lib, job['id']).read_text()
+    assert paused['authorization'] == job['authorization']
+    assert source.read_bytes() == source_bytes
+    assert paused['active_operation'] is None
+    assert not intake.run_next(lib)
+    assert not calls
+
+    monkeypatch.setattr(owner, attribute, original)
+    intake.resume_intake(lib, job['id'], paused['version'])
+    assert intake.run_next(lib)
+    resumed = intake.intake_status(lib, job['id'])
+    assert resumed['readiness']['text'] == 'ready'
+    assert resumed['stage'] == 'semantic'
+    assert 'indexing_error' not in resumed
+    assert not calls
+
+
 def test_budget_pause_requires_explicit_resume_and_new_attempt_identity(tmp_path, monkeypatch):
     responses = [result(status='unavailable', failure_reason='budget')]
     calls = fake_provider(monkeypatch, responses)

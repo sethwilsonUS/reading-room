@@ -815,6 +815,13 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
             # forces us to omit broader publication candidates.
             isbn_source_ids = {fact['source_id'] for fact in local_isbns(publication)}
             publication.sort(key=lambda source: source['id'] not in isbn_source_ids)
+            # Search can return many consulted pages with verbose titles. They
+            # cannot support facts without a source-associated report span, so
+            # do not let them displace actual evidence in the bounded request.
+            # Derive this view from both fresh and cached responses, retaining
+            # the complete returned-source list in the saved external report.
+            normalization_sources = [{**source, 'title': str(source.get('title') or source['url'])[:1000]}
+                                     for source in sources if source.get('cited_report_text')]
             normalization = {'target': local_payload['target'], 'book_identifiers': _identifiers(context),
                 'fields': [field for field in _field_payload(context) if field['key'] in normalization_keys],
                 'target_evidence': [copy.deepcopy(source) for source in local_payload['source_evidence'] if source.get('in_target') is not False],
@@ -830,7 +837,7 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
                     'For each compared ISBN, report established title, format, publisher, year, and edition with record_isbn. '
                     'Do not copy a shared listing format to both ISBNs. Leave unsupported properties unknown.',
                 'local_publication_evidence': [{k: source.get(k) for k in ('id', 'text', 'in_target', 'role')} for source in publication],
-                'external_sources': sources, 'external_report': _response_text(web_response), 'requested_fields': eligible,
+                'external_sources': normalization_sources, 'external_report': _response_text(web_response), 'requested_fields': eligible,
                 'comparison_isbns': compare_isbns}
             normalization_request = _base_request(normalization, normalization_keys)
             while _token_count(normalization_request) > NORMALIZE_INPUT_LIMIT:
@@ -858,14 +865,14 @@ async def _suggest(library, context, *, allow_external=True, should_continue=Non
             normalized_result = _json_result(normalized_response)
             sent_publication_ids = {source['id'] for source in normalization['local_publication_evidence']}
             original_sources = {source['id']: source for source in sent_evidence}
-            assessment_evidence = [*sources, *(source for source in publication if source['id'] in sent_publication_ids),
+            assessment_evidence = [*normalization_sources, *(source for source in publication if source['id'] in sent_publication_ids),
                                    *({**original_sources.get(source['id'], {}), **source} for source in normalization['target_evidence'])]
             assessments = validate_assessments(normalized_result, external_context, assessment_evidence)
             edition = next((a for a in assessments if a['kind'] == 'edition'), None)
             external_context['edition_relationship'] = edition['edition_relationship'] if edition else 'unknown'
             # Unrequested publication fields cannot leak in through an ISBN-only lookup.
             proposal_context = {**external_context, 'fields': [field for field in context['fields'] if field['key'] in eligible]}
-            additional, unresolved = validate_proposals(normalized_result, proposal_context, sources, external=True)
+            additional, unresolved = validate_proposals(normalized_result, proposal_context, normalization_sources, external=True)
             assessments = validate_assessments(normalized_result, external_context, assessment_evidence, additional)
             for assessment in assessments:
                 result['assessments'] = [old for old in result['assessments'] if not (old['kind'] == assessment['kind'] and old['fields'] == assessment['fields'])]
