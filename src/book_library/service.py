@@ -25,10 +25,10 @@ def catalog_signature(cat):
     return hashlib.sha256(compact({'files':[(f['id'],f['path'],f.get('sha256'),f.get('state'),f.get('available')) for f in cat['files'].values()],'works':cat['works']}).encode()).hexdigest()
 
 
-def excerpt_range(text,needles,limit=700):
+def match_offset(text,needles):
+    """Find search wording in normalized text, returning a source-character offset."""
     normalized=norm(text)
     positions=[normalized.find(norm(t)) for t in sorted(needles,key=len,reverse=True) if len(t)>2 and norm(t) in normalized]
-    start=0
     if positions:
         # Normalization can remove combining accents or expand ligatures. Map
         # its match offset back to source characters before slicing citation text.
@@ -36,8 +36,13 @@ def excerpt_range(text,needles,limit=700):
         for source_offset,char in enumerate(text):
             normalized_offset+=len(norm(char))
             if normalized_offset>positions[0]:
-                start=max(0,source_offset-180)
-                break
+                return source_offset
+    return None
+
+
+def excerpt_range(text,needles,limit=700):
+    match=match_offset(text,needles)
+    start=max(0,match-180) if match is not None else 0
     if start+limit>len(text): start=max(0,len(text)-limit)
     end=min(len(text),start+limit)
     return {'text':('…' if start else '')+text[start:end]+('…' if end<len(text) else ''),

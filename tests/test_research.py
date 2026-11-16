@@ -114,6 +114,65 @@ def test_plain_search_output_is_unchanged_without_the_flag(library):
     assert all('context' not in h and 'citation' not in h for h in plain['direct'])
 
 
+@pytest.mark.parametrize('opening,count,trailing', [
+    ('Short line.', 90, 0), ('x', 120, 0), ('x', 70, 0),
+    ('x', 120, 120), ('e\u0301', 120, 120),
+])
+def test_context_keeps_a_match_after_many_short_blocks(tmp_path, opening, count, trailing):
+    root = tmp_path / 'books'
+    path = docx(root / 'Short blocks' / 'source.docx', [
+        ('Heading1', 'Synthetic chapter'), *([opening] * count),
+        'A goldfinch rests beneath the oak.', *([opening] * trailing), 'The synthetic chapter ends here.',
+    ])
+    lib = seed(root, [{'title': 'Synthetic short blocks', 'paths': [path]}])
+    plain = lib.search('goldfinch', engine='exact')['direct'][0]
+    opening_read = lib.read(plain['id'], context=0, max_chars=6000)
+    result = search_with_context(lib, 'goldfinch', engine='exact', total_chars=6000)
+    hit = result['direct'][0]
+    context = hit['context']
+
+    assert {key: hit[key] for key in SHARED_FIELDS} == {key: plain[key] for key in SHARED_FIELDS}
+    assert opening_read['passage_chars'] < 1800  # Characters alone fit the budget.
+    assert 'goldfinch rests beneath the oak' in context['passage']
+    assert context['chars'] <= 6000
+    assert result['context_budget']['used_chars'] == context['chars']
+    reading = lib.read(hit['id'], offset=context['offset'], max_chars=6000)
+    assert len(reading['blocks']) <= 80
+    assert context['next_offset'] == reading['next_offset']
+    assert context['previous_offset'] == reading['previous_offset']
+    if trailing:
+        assert context['next_offset'] is not None
+        continuation = lib.read(hit['id'], offset=context['next_offset'], max_chars=6000)
+        assert continuation['passage']['text']
+    if count > 80:
+        assert 'goldfinch' not in opening_read['passage']['text']
+        assert context['offset'] > 0 and context['truncated']
+    else:
+        assert context['offset'] == 0  # Keep the whole short passage when it fits.
+
+
+def test_semantic_context_reaches_a_window_after_the_block_limit(tmp_path, monkeypatch):
+    root = tmp_path / 'books'
+    paragraphs = ['Synthetic chapter', *(['x'] * 120), 'A goldfinch rests beneath the oak.', *(['x'] * 120)]
+    path = docx(root / 'Short blocks' / 'source.docx', [('Heading1', paragraphs[0]), *paragraphs[1:]])
+    lib = seed(root, [{'title': 'Synthetic short blocks', 'paths': [path]}])
+    passage_id = lib.search('goldfinch', engine='exact')['direct'][0]['id']
+    start = '\n\n'.join(paragraphs).index('A goldfinch')
+    public_config.accept_budget(lib, initial_usd='10', monthly_usd='10', timezone='UTC')
+    semantic_library.configure_engine(lib, 'openai', approval_evidence='Synthetic fixture uses a fake semantic provider.')
+    monkeypatch.setattr(semantic_library, 'search', lambda *args, **kwargs: [
+        {'passage_id': passage_id, 'window_id': 'synthetic-window', 'char_start': start, 'char_end': start + 33},
+    ])
+
+    result = search_with_context(lib, 'avian shelter', total_chars=6000)
+
+    assert not result['direct']
+    hit = result['connections'][0]
+    assert 'goldfinch rests beneath the oak' in hit['context']['passage']
+    assert hit['context']['offset'] <= start < hit['context']['next_offset']
+    assert result['context_budget']['used_chars'] == hit['context']['chars'] <= 6000
+
+
 @pytest.mark.parametrize('max_chars,closing', [(6000, 'Quiet closing prose. ' * 400), (500, '')])
 def test_late_exact_match_stays_in_context_with_working_continuations(tmp_path, max_chars, closing):
     root = tmp_path / 'books'
