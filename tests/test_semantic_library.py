@@ -156,16 +156,22 @@ def test_queries_cached_and_source_archives_never_opened(library, monkeypatch):
 
 
 def test_new_generations_share_snapshot_map_and_legacy_maps_still_query(library):
-    lib, _, calls, _ = library
+    lib, _, _, _ = library
+    def hits():
+        # The synthetic one-hot vectors can tie. ANN rebuilds need not return
+        # tied neighbors in the same order; compare every score and source map.
+        return sorted(sem.search(lib, 'river memory'), key=lambda hit: (hit['distance'], hit['window_id']))
+
     approve(lib)
     first = sem.build_index(lib)
     root = lib.state / 'semantic'
     assert first['windows_file'] == f"snapshots/{first['snapshot_id']}.sqlite3"
     assert not (root / 'generations' / first['generation'] / 'windows.sqlite3').exists()
-    expected = sem.search(lib, 'river memory')
+    expected = hits()
+    assert len(expected) == 2
     second = sem.build_index(lib, force=True)
     assert second['windows_file'] == first['windows_file']
-    assert sem.search(lib, 'river memory') == expected
+    assert hits() == expected
     assert len(list((root / 'snapshots').glob('*.sqlite3'))) == 1
 
     # An existing installation's generation-local map remains supported.
@@ -175,7 +181,7 @@ def test_new_generations_share_snapshot_map_and_legacy_maps_still_query(library)
     second['windows_file'] = str(legacy.relative_to(root))
     atomic_json(legacy.parent / 'generation.json', second)
     atomic_json(root / 'current.json', second)
-    assert sem.search(lib, 'river memory') == expected
+    assert hits() == expected
     result = sem.build_index(lib)
     assert not result['changed'] and result['retention']['applied']
     assert legacy.is_file()
